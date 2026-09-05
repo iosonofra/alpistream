@@ -88,6 +88,46 @@ else
     rc-service mandrakodi start
 fi
 
+# 7. Opzionale: Installazione automatica Ace Stream Engine
+echo ""
+echo "-------------------------------------------------------"
+echo "  Configurazione Ace Stream Engine (Opzionale)        "
+echo "-------------------------------------------------------"
+
+INSTALL_ACE="no"
+if [ "$1" = "--with-acestream" ]; then
+    INSTALL_ACE="yes"
+elif [ -t 0 ] && [ "$1" != "--no-acestream" ]; then
+    printf "[?] Vuoi installare automaticamente anche Ace Stream Engine su questo container? [s/N]: "
+    read -r resp
+    case "$resp" in
+        [sS][iI]|[sS]|[yY][eE][sS]|[yY]) INSTALL_ACE="yes" ;;
+        *) INSTALL_ACE="no" ;;
+    esac
+fi
+
+if [ "$INSTALL_ACE" = "yes" ]; then
+    echo "[+] Installazione Docker e avvio container Ace Stream Engine..."
+    apk add --no-cache docker
+    rc-update add docker default
+    rc-service docker start || true
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^acestream-engine$'; then
+        echo "[+] Riavvio container acestream-engine esistente..."
+        docker restart acestream-engine || true
+    else
+        echo "[+] Avvio container acestream-engine su porta 6878..."
+        docker run -d \
+          --name acestream-engine \
+          --restart unless-stopped \
+          -p 6878:6878 \
+          -p 6878:6878/udp \
+          magnetikonline/acestream-server || true
+    fi
+    echo "[+] Ace Stream Engine attivo su porta 6878!"
+else
+    echo "[*] Ace Stream Engine saltato. Potrai collegarne uno esterno o eseguirlo separatamente."
+fi
+
 IP_ADDR=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' || hostname -i)
 
 echo "======================================================="
