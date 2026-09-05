@@ -664,7 +664,30 @@ app.get('/api/acestream/status', (req, res) => {
 // 3c. PROXY HTTP CENTRALIZZATO MPD CLEARKEY (FFmpeg Stream Copy)
 // -------------------------------------------------------------
 
-// Funzione di ottimizzazione del manifest MPD per eliminare micro-buffering, stuttering e A/V desync
+// Funzione per selezionare la migliore rappresentazione video (risoluzione e bitrate massimi)
+function getBestVideoRepresentation(reps) {
+  let bestRep = reps[0];
+  let maxBandwidth = -1;
+  let maxHeight = -1;
+
+  for (const rep of reps) {
+    const bwMatch = rep.match(/bandwidth="(\d+)"/i);
+    const heightMatch = rep.match(/height="(\d+)"/i);
+    const bw = bwMatch ? parseInt(bwMatch[1], 10) : 0;
+    const h = heightMatch ? parseInt(heightMatch[1], 10) : 0;
+
+    // Seleziona la risoluzione più alta (es. 1080p > 720p > 216p)
+    // e a parità di risoluzione il bandwidth più alto (es. 1080p50 10Mbps > 1080p25 5Mbps)
+    if (h > maxHeight || (h === maxHeight && bw > maxBandwidth)) {
+      maxHeight = h;
+      maxBandwidth = bw;
+      bestRep = rep;
+    }
+  }
+  return bestRep;
+}
+
+// Funzione di ottimizzazione del manifest MPD per eliminare micro-buffering, stuttering e forzare 1080p full HD
 function cleanAndBufferMpd(manifest, targetUrl) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
 
@@ -674,24 +697,37 @@ function cleanAndBufferMpd(manifest, targetUrl) {
     cleaned = cleaned.replace(/<Period\b/i, `<BaseURL>${baseUrl}</BaseURL>\n  <Period`);
   }
 
-  // 2. In ogni AdaptationSet video, mantieni solo la prima Representation (1080p massima qualità)
-  // per eliminare tentativi di ABR/downgrade di FFmpeg e conflitti tra rappresentazioni multiple
-  cleaned = cleaned.replace(/<AdaptationSet\b([^>]*contentType="video"[^>]*)>([\s\S]*?)<\/AdaptationSet>/gi, (match, attrs, content) => {
-    const reps = content.match(/<Representation[\s\S]*?<\/Representation>/g) || [];
+  // 2. In ogni AdaptationSet video (riconosciuto da contentType="video", mimeType="video/..." o attributo width/height),
+  // isola e mantieni SOLO la Representation a massima risoluzione/bitrate (es. 1080p 50fps a 10 Mbps).
+  // Questo elimina sia i tentativi di downgrade/ABR di FFmpeg sia il blocco a 216p/360p della prima traccia!
+  cleaned = cleaned.replace(/<AdaptationSet\b([\s\S]*?)<\/AdaptationSet>/gi, (match) => {
+    const isVideo = /contentType="video"/i.test(match) || /mimeType="video\//i.test(match) || /width="\d+"/i.test(match);
+    if (!isVideo) return match;
+
+    const openingTagMatch = match.match(/<AdaptationSet\b[^>]*>/i);
+    const openingTag = openingTagMatch ? openingTagMatch[0] : '<AdaptationSet>';
+    const content = match.replace(/<AdaptationSet\b[^>]*>/i, '').replace(/<\/AdaptationSet>/i, '');
+
+    const reps = content.match(/<Representation[\s\S]*?<\/Representation>/gi) || [];
     if (reps.length > 1) {
-      const firstRep = reps[0];
-      const withoutReps = content.replace(/<Representation[\s\S]*?<\/Representation>/g, '');
-      return `<AdaptationSet ${attrs}>${withoutReps}\n      ${firstRep}\n    </AdaptationSet>`;
+      const bestRep = getBestVideoRepresentation(reps);
+      const withoutReps = content.replace(/<Representation[\s\S]*?<\/Representation>/gi, '');
+      return `${openingTag}${withoutReps}\n      ${bestRep}\n    </AdaptationSet>`;
     }
     return match;
   });
 
-  // 3. Tieni solo il primo AdaptationSet audio per evitare conflitti o salti temporali tra tracce multiple
-  let audioSetCount = 0;
-  cleaned = cleaned.replace(/<AdaptationSet\b([^>]*contentType="audio"[^>]*)>([\s\S]*?)<\/AdaptationSet>/gi, (match) => {
-    audioSetCount++;
-    if (audioSetCount > 1) return '';
-    return match;
+  // 3. Per l'audio, mantieni solo il primo AdaptationSet audio (evita download paralleli e conflitti di tracce)
+  let keptAudio = false;
+  cleaned = cleaned.replace(/<AdaptationSet\b([\s\S]*?)<\/AdaptationSet>/gi, (match) => {
+    const isAudio = /contentType="audio"/i.test(match) || /mimeType="audio\//i.test(match);
+    if (!isAudio) return match;
+
+    if (!keptAudio) {
+      keptAudio = true;
+      return match;
+    }
+    return '';
   });
 
   // 4. Trimming di sicurezza del SegmentTimeline (5 segmenti di margine = ~18-20s di live buffer)
