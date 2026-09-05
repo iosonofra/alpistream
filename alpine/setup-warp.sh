@@ -90,13 +90,11 @@ fi
 chmod +x /etc/init.d/warp-svc
 mkdir -p /var/lib/warp-plus
 
-# 5. File di configurazione parametri (se non esiste già)
-if [ ! -f "/etc/conf.d/warp-svc" ]; then
-    cat << 'EOF' > /etc/conf.d/warp-svc
+# 5. File di configurazione parametri
+cat << 'EOF' > /etc/conf.d/warp-svc
 # Configurazione Cloudflare WARP Userspace SOCKS5 Service
 command_args="-b 127.0.0.1:40000 -4 --cache-dir /var/lib/warp-plus"
 EOF
-fi
 
 # 6. Abilitazione all'avvio e avvio immediato del servizio
 echo "[+] Configurazione avvio automatico (OpenRC)..."
