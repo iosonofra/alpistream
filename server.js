@@ -405,74 +405,108 @@ function streamAceEngine(hash, req, res) {
   const host = parts[0] || '127.0.0.1';
   const port = parseInt(parts[1], 10) || 6878;
 
-  const targetPath = `/ace/getstream?id=${encodeURIComponent(cleanHash)}`;
-  console.log(`[AceStream Proxy] Connessione ad Ace Engine (${host}:${port}) per hash ${cleanHash}...`);
-
-  const clientReq = http.request({
-    hostname: host,
-    port: port,
-    path: targetPath,
-    method: 'GET',
-    headers: {
-      'User-Agent': 'MandraKodi-AceStreamProxy/2.0',
-      'Accept': '*/*'
-    },
-    timeout: 35000 // 35 secondi per consentire l'aggancio dei peer P2P e pre-buffering
-  }, (aceRes) => {
-    if (aceRes.statusCode >= 400) {
-      console.warn(`[AceStream Proxy] Risposta HTTP ${aceRes.statusCode} da Ace Engine per hash ${cleanHash}`);
-      res.status(aceRes.statusCode);
-      aceRes.pipe(res);
-      return;
-    }
-
-    res.writeHead(aceRes.statusCode, {
-      'Content-Type': aceRes.headers['content-type'] || 'video/mp2t',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'Connection': 'keep-alive'
-    });
-
-    aceRes.pipe(res);
-
-    aceRes.on('error', (err) => {
-      console.error(`[AceStream Proxy] Errore flusso dati: ${err.message}`);
-      if (!res.headersSent) res.status(502).send('Errore streaming da Ace Engine');
-      res.end();
-    });
-  });
-
-  clientReq.on('timeout', () => {
-    console.warn(`[AceStream Proxy] Timeout di connessione ad Ace Engine (${host}:${port}) per hash ${cleanHash}`);
-    clientReq.destroy();
-    if (!res.headersSent) {
-      res.status(504).send('Timeout: Ace Stream Engine non ha risposto in tempo');
-    }
-  });
-
-  clientReq.on('error', (err) => {
-    console.error(`[AceStream Proxy] Impossibile contattare Ace Engine (${host}:${port}): ${err.message}`);
-    if (!res.headersSent) {
-      res.status(502).json({
-        error: 'Ace Stream Engine non raggiungibile',
-        host: aceHost,
-        details: err.message,
-        hint: 'Verifica che Ace Stream Engine sia attivo su questo host/porta (configurabile in Impostazioni).'
-      });
-    }
-  });
+  let activeClientReq = null;
 
   // Chiusura immediata della richiesta ad Ace Engine quando il client si disconnette
   req.on('close', () => {
     console.log(`[AceStream Proxy] Client disconnesso per hash ${cleanHash}. Interruzione stream.`);
-    clientReq.destroy();
+    if (activeClientReq) {
+      activeClientReq.destroy();
+    }
   });
 
-  clientReq.end();
+  function requestStream(requestPath, redirectCount = 0) {
+    if (redirectCount > 5) {
+      if (!res.headersSent) {
+        res.status(508).send('Troppi redirect da Ace Stream Engine.');
+      }
+      return;
+    }
+
+    console.log(`[AceStream Proxy] Connessione ad Ace Engine (${host}:${port}${requestPath}) per hash ${cleanHash}...`);
+
+    const clientReq = http.request({
+      hostname: host,
+      port: port,
+      path: requestPath,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'MandraKodi-AceStreamProxy/2.0',
+        'Accept': '*/*'
+      },
+      timeout: 45000 // 45 secondi per consentire l'aggancio dei peer P2P e pre-buffering
+    }, (aceRes) => {
+      // Segui automaticamente eventuali redirect 301, 302, 303, 307, 308 emessi da Ace Engine
+      if (aceRes.statusCode >= 300 && aceRes.statusCode < 400 && aceRes.headers.location) {
+        let redirectLocation = aceRes.headers.location;
+        console.log(`[AceStream Proxy] Ricevuto redirect ${aceRes.statusCode} verso ${redirectLocation}`);
+        
+        try {
+          if (redirectLocation.startsWith('http://') || redirectLocation.startsWith('https://')) {
+            const parsedUrl = new URL(redirectLocation);
+            redirectLocation = parsedUrl.pathname + parsedUrl.search;
+          }
+        } catch (e) {
+          // fallback su stringa originale
+        }
+
+        aceRes.resume(); // consuma il body della risposta di redirect
+        return requestStream(redirectLocation, redirectCount + 1);
+      }
+
+      if (aceRes.statusCode >= 400) {
+        console.warn(`[AceStream Proxy] Risposta HTTP ${aceRes.statusCode} da Ace Engine per hash ${cleanHash}`);
+        res.status(aceRes.statusCode);
+        aceRes.pipe(res);
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': aceRes.headers['content-type'] || 'video/mp2t',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Connection': 'keep-alive'
+      });
+
+      aceRes.pipe(res);
+
+      aceRes.on('error', (err) => {
+        console.error(`[AceStream Proxy] Errore flusso dati: ${err.message}`);
+        if (!res.headersSent) res.status(502).send('Errore streaming da Ace Engine');
+        res.end();
+      });
+    });
+
+    activeClientReq = clientReq;
+
+    clientReq.on('timeout', () => {
+      console.warn(`[AceStream Proxy] Timeout di connessione ad Ace Engine (${host}:${port}) per hash ${cleanHash}`);
+      clientReq.destroy();
+      if (!res.headersSent) {
+        res.status(504).send('Timeout: Ace Stream Engine non ha risposto in tempo (buffer lento o assenza di peer)');
+      }
+    });
+
+    clientReq.on('error', (err) => {
+      console.error(`[AceStream Proxy] Impossibile contattare Ace Engine (${host}:${port}): ${err.message}`);
+      if (!res.headersSent) {
+        res.status(502).json({
+          error: 'Ace Stream Engine non raggiungibile',
+          host: aceHost,
+          details: err.message,
+          hint: 'Verifica che Ace Stream Engine sia attivo su questo host/porta (configurabile in Impostazioni).'
+        });
+      }
+    });
+
+    clientReq.end();
+  }
+
+  requestStream(`/ace/getstream?id=${encodeURIComponent(cleanHash)}`);
 }
 
 // 1. Endpoint standard REST per client IPTV / Kodi / VLC / Browser
