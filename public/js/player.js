@@ -64,7 +64,7 @@ async function cleanupPlayer(playerInstance) {
   if (!playerInstance) return;
   try {
     if (typeof playerInstance.destroy === 'function') {
-      playerInstance.destroy();
+      await playerInstance.destroy();
     } else if (typeof playerInstance.unload === 'function') {
       await playerInstance.unload().catch(() => {});
     }
@@ -163,13 +163,17 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
 
   if (window.shaka && shaka.Player.isBrowserSupported()) {
     try {
-      if (!playerInstance || typeof playerInstance.load !== 'function') {
+      const isShakaInstance = playerInstance && (playerInstance instanceof shaka.Player || (typeof playerInstance.getNetworkingEngine === 'function' && typeof playerInstance.configure === 'function'));
+      if (!isShakaInstance) {
         if (playerInstance) await cleanupPlayer(playerInstance);
         playerInstance = new shaka.Player(videoEl);
         playerInstance.addEventListener('error', (e) => {
           console.warn('[Player Shaka Warning]', e.detail);
-          if (e.detail && e.detail.code === 3015) {
-            if (window.showToast) showToast('⚠️ Flusso stream non raggiungibile o offline');
+          if (e && e.detail) {
+            e.detail.handled = true;
+            if (e.detail.code === 3015) {
+              if (window.showToast) showToast('⚠️ Flusso stream non raggiungibile o offline');
+            }
           }
         });
       } else {
@@ -180,6 +184,11 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
       playerInstance.configure({
         drm: {
           clearKeys: clearKeysMap
+        },
+        manifest: {
+          dash: {
+            ignoreMinBufferTime: true
+          }
         },
         streaming: {
           bufferingGoal: 10,
@@ -236,21 +245,58 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
       return playerInstance;
     } catch (err) {
       console.warn('[Player] Shaka non avviato per questo stream, tentativo con fallback:', err.message);
+      if (playerInstance) {
+        await cleanupPlayer(playerInstance);
+        playerInstance = null;
+      }
+      try {
+        videoEl.removeAttribute('src');
+        videoEl.load();
+      } catch (e) {}
     }
   }
 
-  // Fallback Hls.js
+  // Fallback 1: Se è un flusso MPD con ClearKey o ID canale valido, usa il proxy FFmpeg interno via mpegts.js
+  const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
+  if ((cleanUrl.includes('.mpd') || hasClearKey) && window.mpegts && mpegts.isSupported()) {
+    try {
+      const mpdProxyUrl = (ch.id && !ch.id.startsWith('http'))
+        ? `/stream/mpd/${ch.id}${useWarp ? '?warp=1' : ''}`
+        : `/stream/mpd?url=${encodeURIComponent(cleanUrl)}&key=${encodeURIComponent(clearkey)}${ch.headers ? '&headers=' + encodeURIComponent(ch.headers) : ''}${useWarp ? '&warp=1' : ''}`;
+
+      console.log('[Player] Avvio fallback FFmpeg MPD ClearKey via mpegts.js:', mpdProxyUrl);
+      const mpegPlayer = mpegts.createPlayer({
+        type: 'mse',
+        isLive: true,
+        url: mpdProxyUrl
+      }, {
+        enableWorker: true,
+        lazyLoadMaxDuration: 3 * 60,
+        seekType: 'range',
+        liveBufferLatencyChasing: true
+      });
+      mpegPlayer.attachMediaElement(videoEl);
+      mpegPlayer.load();
+      mpegPlayer.play().catch(() => {});
+      return mpegPlayer;
+    } catch (mErr) {
+      console.warn('[Player] Fallback mpegts.js non riuscito:', mErr);
+    }
+  }
+
+  // Fallback 2: Hls.js se è flusso m3u8
   if (window.Hls && Hls.isSupported() && (cleanUrl.includes('.m3u8') || cleanUrl.includes('hls'))) {
     const hls = new Hls({ maxBufferLength: 10 });
     hls.loadSource(buildProxyUrl(cleanUrl, headersObj, useWarp));
     hls.attachMedia(videoEl);
     hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
-  } else {
-    videoEl.src = buildProxyUrl(cleanUrl, headersObj, useWarp);
-    videoEl.play().catch(() => {});
+    return hls;
   }
 
-  return playerInstance;
+  // Fallback 3: Tag HTML5 nativo
+  videoEl.src = buildProxyUrl(cleanUrl, headersObj, useWarp);
+  videoEl.play().catch(() => {});
+  return null;
 }
 
 // -------------------------------------------------------------

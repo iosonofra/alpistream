@@ -411,7 +411,13 @@ app.get('/api/stream/proxy', async (req, res) => {
         // 1. Inietta tag W3C ClearKey UUID affinché tutti i browser (Chrome, Firefox, Safari, Edge) accettino la riproduzione EME
         const clearKeyTag = '<ContentProtection schemeIdUri="urn:uuid:1077efec-c0b2-4d02-ace3-3c1e52e2fb4b" value="ClearKey1.0"/>';
         if (!xml.includes('1077efec-c0b2-4d02-ace3-3c1e52e2fb4b')) {
-          xml = xml.replace(/(<ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011"[^>]*>[\s\S]*?<\/ContentProtection>)/gi, `$1\n            ${clearKeyTag}`);
+          if (xml.includes('urn:mpeg:dash:mp4protection:2011')) {
+            xml = xml.replace(/(<ContentProtection[^>]*schemeIdUri="urn:mpeg:dash:mp4protection:2011"[^>]*\/>|<\/ContentProtection>)/i, (m) => `${m}\n            ${clearKeyTag}`);
+          } else if (/urn:uuid:(edef8ba9-79d6-4ace-a3c8-27dcd51d21ed|9a04f079-9840-4286-ab92-e65be0885f95)/i.test(xml)) {
+            xml = xml.replace(/(<ContentProtection\b[^>]*\/>|<\/ContentProtection>)/i, (m) => `${m}\n            ${clearKeyTag}`);
+          } else {
+            xml = xml.replace(/(<AdaptationSet\b[^>]*>)/gi, `$1\n        ${clearKeyTag}`);
+          }
         }
 
         // 2. Inietta BaseURL assoluto se assente
