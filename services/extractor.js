@@ -786,16 +786,19 @@ class ExtractorEngine {
         const clearkey = ch.clearkey || '';
         const headers = ch.headers || '';
 
-        // Riscrittura canali AceStream tramite il proxy HTTP di MandraKodi
+        // Riscrittura canali AceStream e MPD ClearKey tramite il proxy HTTP di MandraKodi
         let finalUrl = url;
         let isAce = false;
+        let isMpdProxy = false;
         let proxyEnabled = true;
         let aceHost = '127.0.0.1:6878';
+        let mpdProxyEnabled = false;
         try {
           const cfg = require('./storage').getConfig();
           if (cfg) {
             if (cfg.aceStreamProxyEnabled !== undefined) proxyEnabled = cfg.aceStreamProxyEnabled;
             if (cfg.aceStreamHost) aceHost = cfg.aceStreamHost;
+            if (cfg.mpdProxyEnabled !== undefined) mpdProxyEnabled = cfg.mpdProxyEnabled;
           }
         } catch (e) {}
 
@@ -814,12 +817,18 @@ class ExtractorEngine {
           } else {
             finalUrl = `http://${aceHost}/ace/getstream?id=${aceHash}`;
           }
+        } else {
+          const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
+          if (hasClearKey && baseUrl && mpdProxyEnabled && ch.id) {
+            isMpdProxy = true;
+            finalUrl = `${baseUrl}/stream/mpd/${ch.id}${tokenParam || ''}`;
+          }
         }
 
         m3u += `#EXTINF:-1 tvg-id="${tvgId}" tvg-name="${title}" tvg-logo="${logo}" group-title="${groupName}" tvg-chno="${channelNumber}",${title}\n`;
         channelNumber++;
 
-        if (isAce) {
+        if (isAce || isMpdProxy) {
           // Stream MPEG-TS diretto fornito dal proxy MandraKodi per massima compatibilità
           m3u += `#KODIPROP:mimetype=video/mp2t\n`;
         } else if (kodiProps && Object.keys(kodiProps).length > 0) {

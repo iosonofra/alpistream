@@ -3,6 +3,7 @@ const compression = require('compression');
 const path = require('path');
 const http = require('http');
 const net = require('net');
+const { spawn, exec } = require('child_process');
 const storage = require('./services/storage');
 const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
 const epgManager = require('./services/epg');
@@ -655,6 +656,184 @@ app.get('/api/acestream/status', (req, res) => {
   });
 
   socket.connect(port, host);
+});
+
+// -------------------------------------------------------------
+// 3c. PROXY HTTP CENTRALIZZATO MPD CLEARKEY (FFmpeg Stream Copy)
+// -------------------------------------------------------------
+
+function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
+  let targetUrl = '';
+  let clearkey = '';
+  let headersStr = '';
+  let title = 'Live Stream';
+
+  // 1. Cerca canale per ID nel database se fornito
+  if (channelIdOrUrl && !channelIdOrUrl.startsWith('http')) {
+    const channels = storage.getChannels();
+    const custom = storage.getCustomChannels();
+    const all = [...custom, ...channels];
+    const ch = all.find(c => c.id === channelIdOrUrl);
+    if (ch) {
+      targetUrl = ch.url;
+      clearkey = ch.clearkey || (ch.kodi_props ? ch.kodi_props['inputstream.adaptive.license_key'] : '');
+      headersStr = ch.headers || '';
+      title = ch.customTitle || ch.title || title;
+    }
+  }
+
+  // Fallback da parametri query
+  if (!targetUrl && channelIdOrUrl && channelIdOrUrl.startsWith('http')) {
+    targetUrl = channelIdOrUrl;
+  }
+  if (!clearkey && queryKey) {
+    clearkey = queryKey;
+  }
+  if (!headersStr && queryHeaders) {
+    headersStr = queryHeaders;
+  }
+
+  if (!targetUrl) {
+    return res.status(400).send('URL MPD o Canale non valido.');
+  }
+
+  // Estrai la chiave a 16 byte (32 caratteri esadecimali)
+  let keyHex = '';
+  if (clearkey) {
+    const cleanK = String(clearkey).trim();
+    if (cleanK.includes(':')) {
+      const parts = cleanK.split(':');
+      keyHex = parts[1].trim();
+    } else {
+      keyHex = cleanK;
+    }
+    if (keyHex.includes(',')) {
+      keyHex = keyHex.split(',')[0].trim();
+      if (keyHex.includes(':')) keyHex = keyHex.split(':')[1].trim();
+    }
+  }
+
+  if (!keyHex || !/^[a-f0-9]{32}$/i.test(keyHex)) {
+    return res.status(400).send(`Chiave ClearKey non valida o mancante (richiesti 32 caratteri esadecimali). Trovata: ${keyHex || 'nessuna'}`);
+  }
+
+  // Formatta headers per FFmpeg (-headers "Key: Value\r\n...")
+  let formattedHeaders = '';
+  if (headersStr) {
+    if (headersStr.includes('&')) {
+      const pairs = headersStr.split('&');
+      const formatted = [];
+      for (const p of pairs) {
+        const [k, ...v] = p.split('=');
+        if (k && v.length) formatted.push(`${k.trim()}: ${v.join('=').trim()}`);
+      }
+      formattedHeaders = formatted.join('\r\n') + '\r\n';
+    } else if (headersStr.includes(':')) {
+      formattedHeaders = headersStr.endsWith('\r\n') ? headersStr : `${headersStr}\r\n`;
+    }
+  }
+
+  console.log(`[MPD ClearKey Proxy] Avvio streaming decifrato per "${title}" (Key: ${keyHex.substring(0, 8)}...)...`);
+
+  const ffmpegArgs = [
+    '-loglevel', 'warning',
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '5'
+  ];
+
+  if (formattedHeaders) {
+    ffmpegArgs.push('-headers', formattedHeaders);
+  }
+
+  ffmpegArgs.push('-cenc_decryption_key', keyHex);
+  ffmpegArgs.push('-i', targetUrl);
+  ffmpegArgs.push('-c', 'copy');
+  ffmpegArgs.push('-f', 'mpegts');
+  ffmpegArgs.push('pipe:1');
+
+  let ffmpegProc;
+  try {
+    ffmpegProc = spawn('ffmpeg', ffmpegArgs);
+  } catch (err) {
+    console.error(`[MPD ClearKey Proxy] Impossibile avviare FFmpeg: ${err.message}`);
+    return res.status(500).send(`Errore avvio FFmpeg: ${err.message}`);
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'video/mp2t',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Connection': 'keep-alive'
+  });
+
+  ffmpegProc.stdout.pipe(res);
+
+  let errLog = '';
+  ffmpegProc.stderr.on('data', (data) => {
+    errLog += data.toString();
+    if (errLog.length > 500) errLog = errLog.substring(errLog.length - 500);
+  });
+
+  ffmpegProc.on('error', (err) => {
+    console.error(`[MPD ClearKey Proxy] Errore esecuzione FFmpeg: ${err.message}`);
+    if (!res.headersSent) {
+      res.status(500).send(`Errore FFmpeg: ${err.message}. Verifica che ffmpeg sia installato (apk add ffmpeg).`);
+    }
+  });
+
+  ffmpegProc.on('close', (code) => {
+    if (code !== 0 && code !== 255) {
+      console.warn(`[MPD ClearKey Proxy] FFmpeg terminato con codice ${code}: ${errLog.trim()}`);
+    }
+    if (!res.writableEnded) {
+      res.end();
+    }
+  });
+
+  let killed = false;
+  req.on('close', () => {
+    if (!killed && ffmpegProc) {
+      killed = true;
+      console.log(`[MPD ClearKey Proxy] Client disconnesso per "${title}". Terminazione FFmpeg.`);
+      try {
+        ffmpegProc.kill('SIGKILL');
+      } catch (e) {}
+    }
+  });
+}
+
+// 1. Endpoint MPD Proxy per client IPTV / Kodi / VLC / Smart TV
+app.get(['/stream/mpd/:id', '/stream/mpd'], verifyToken, (req, res) => {
+  const channelId = req.params.id || req.query.id || req.query.url;
+  const key = req.query.key || req.query.clearkey;
+  const headers = req.query.headers;
+  streamMpdClearKey(channelId, key, headers, req, res);
+});
+
+// 2. Endpoint Diagnostica FFmpeg
+app.get('/api/ffmpeg/status', (req, res) => {
+  exec('ffmpeg -version', (err, stdout) => {
+    if (err) {
+      return res.json({
+        success: false,
+        installed: false,
+        error: err.message,
+        hint: "FFmpeg non è installato sul sistema. Esegui 'apk add --no-cache ffmpeg' sul container Alpine."
+      });
+    }
+    const firstLine = stdout.split('\n')[0] || 'FFmpeg installato';
+    res.json({
+      success: true,
+      installed: true,
+      version: firstLine.trim(),
+      message: firstLine.trim()
+    });
+  });
 });
 
 // Endpoint Controllo Salute Canali (Health Checker)

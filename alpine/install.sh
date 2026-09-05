@@ -11,7 +11,7 @@ echo "======================================================="
 # 1. Aggiorna pacchetti e installa Node.js, npm & git
 echo "[+] Aggiornamento repository APK e installazione Node.js, npm, git..."
 apk update
-apk add --no-cache nodejs npm curl tzdata git
+apk add --no-cache nodejs npm curl tzdata git ffmpeg
 
 # 2. Configura directory applicazione
 INSTALL_DIR="/opt/mandrakodi"
