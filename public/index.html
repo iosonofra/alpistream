@@ -519,6 +519,49 @@
                       🔍 Testa FFmpeg
                     </button>
                   </div>
+                <div class="card-divider" style="margin: 24px 0; border-top: 1px solid var(--border-color, #333);"></div>
+                <h4 style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+                  <span>🛡️</span> Proxy Cloudflare WARP SOCKS5 (Bypass Blocchi & CDN Protette)
+                </h4>
+                
+                <div class="form-group">
+                  <div class="form-check form-switch" style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <input class="form-check-input" type="checkbox" id="setting-warp-enabled" style="width: 20px; height: 20px; cursor: pointer;">
+                    <label class="form-check-label" for="setting-warp-enabled" style="cursor: pointer; font-weight: 500;">
+                      Abilita Proxy Cloudflare WARP per i flussi protetti
+                    </label>
+                  </div>
+                  <small class="text-muted" style="display: block;">
+                    Se abilitato, instrada selettivamente i canali contrassegnati e i gruppi selezionati attraverso il demone Cloudflare WARP locale, aggirando blocchi CDN e georestrizioni senza toccare la rete locale o AceStream.
+                  </small>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                  <label for="setting-warp-host">Indirizzo Proxy SOCKS5 WARP (Host:Porta)</label>
+                  <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="setting-warp-host" class="form-control" placeholder="127.0.0.1:40000" style="flex: 1;">
+                    <button type="button" id="btn-test-warp" class="btn btn-secondary" style="white-space: nowrap; padding: 10px 16px;">
+                      🔍 Testa Connessione WARP
+                    </button>
+                  </div>
+                  <div id="warp-status-badge" style="margin-top: 8px;"></div>
+                  <small class="text-muted">
+                    Predefinito per il servizio Alpine LXC: <code>127.0.0.1:40000</code>. Puoi avviare il servizio sul container eseguendo: <code>./alpine/setup-warp.sh</code>.
+                  </small>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                  <label for="setting-warp-license">Chiave Licenza Cloudflare WARP+ (Opzionale)</label>
+                  <input type="text" id="setting-warp-license" class="form-control" placeholder="Lascia vuoto per account WARP standard gratuito o inserisci la tua chiave WARP+">
+                  <small class="text-muted">Opzionale. Se possiedi un abbonamento Cloudflare WARP+, inserisci qui la tua chiave di licenza a 26 caratteri.</small>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                  <label>Gruppi Interi da Instradare tramite WARP</label>
+                  <div id="warp-groups-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color, #333); border-radius: 6px; min-height: 42px;">
+                    <!-- Checkboxes dinamiche dei gruppi -->
+                  </div>
+                  <small class="text-muted">Seleziona i gruppi (es. <em>SPORT - HTSport</em>) che devono passare automaticamente attraverso il proxy Cloudflare WARP.</small>
                 </div>
 
                 <button type="submit" class="btn btn-primary" style="margin-top: 20px;">💾 Salva Impostazioni</button>
@@ -575,6 +618,17 @@
         <div class="form-group">
           <label>EPG ID (XMLTV)</label>
           <input type="text" id="edit-channel-tvgid" class="form-control">
+        </div>
+        <div class="form-group" style="margin-top: 16px; padding: 10px 12px; background: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.25); border-radius: 6px;">
+          <div class="form-check form-switch" style="display: flex; align-items: center; gap: 10px;">
+            <input class="form-check-input" type="checkbox" id="edit-channel-warp" style="width: 20px; height: 20px; cursor: pointer;">
+            <label class="form-check-label" for="edit-channel-warp" style="cursor: pointer; font-weight: 600; color: #fb923c;">
+              🛡️ Instrada questo canale tramite Cloudflare WARP (SOCKS5)
+            </label>
+          </div>
+          <small class="text-muted" style="display: block; margin-top: 4px; font-size: 0.82rem;">
+            Attiva il bypass tramite proxy WARP per questo canale nei proxy centralizzati MPD e HTSport.
+          </small>
         </div>
       </div>
       <div class="modal-footer">

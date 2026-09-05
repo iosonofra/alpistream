@@ -5,12 +5,26 @@ const path = require('path');
 const http = require('http');
 const net = require('net');
 const { spawn, exec } = require('child_process');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 const storage = require('./services/storage');
 const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
 const epgManager = require('./services/epg');
 const eventsManager = require('./services/events');
 const scheduler = require('./services/scheduler');
 const HTSportService = require('./services/htsport');
+
+// Helper per ottenere l'agente proxy Cloudflare WARP SOCKS5
+function getWarpAgent() {
+  const cfg = storage.getConfig();
+  const rawHost = (cfg && cfg.warpHost) || '127.0.0.1:40000';
+  const proxyUrl = rawHost.includes('://') ? rawHost : `socks5h://${rawHost}`;
+  try {
+    return new SocksProxyAgent(proxyUrl);
+  } catch (err) {
+    console.error(`[WARP Proxy] Errore inizializzazione SocksProxyAgent: ${err.message}`);
+    return null;
+  }
+}
 
 const app = express();
 app.set('trust proxy', true);
@@ -180,7 +194,7 @@ app.get('/api/channels', (req, res) => {
 // Modifica singolo canale
 app.put('/api/channels/:id', (req, res) => {
   const { id } = req.params;
-  const { title, group, logo, tvgId, enabled } = req.body;
+  const { title, group, logo, tvgId, enabled, useWarp } = req.body;
 
   const channels = storage.getChannels();
   let found = false;
@@ -197,7 +211,8 @@ app.put('/api/channels/:id', (req, res) => {
         customLogo: logo !== undefined ? logo : ch.customLogo,
         logo: logo !== undefined ? logo : ch.logo,
         tvgId: tvgId !== undefined ? tvgId : ch.tvgId,
-        enabled: enabled !== undefined ? enabled : ch.enabled
+        enabled: enabled !== undefined ? enabled : ch.enabled,
+        useWarp: useWarp !== undefined ? !!useWarp : ch.useWarp
       };
     }
     return ch;
@@ -213,7 +228,15 @@ app.put('/api/channels/:id', (req, res) => {
   const updatedCustom = custom.map(ch => {
     if (ch.id === id) {
       found = true;
-      return { ...ch, title, group, logo, tvgId, enabled };
+      return {
+        ...ch,
+        title: title !== undefined ? title : ch.title,
+        group: group !== undefined ? group : ch.group,
+        logo: logo !== undefined ? logo : ch.logo,
+        tvgId: tvgId !== undefined ? tvgId : ch.tvgId,
+        enabled: enabled !== undefined ? enabled : ch.enabled,
+        useWarp: useWarp !== undefined ? !!useWarp : ch.useWarp
+      };
     }
     return ch;
   });
@@ -660,6 +683,68 @@ app.get('/api/acestream/status', (req, res) => {
   socket.connect(port, host);
 });
 
+// 5. API Diagnostica Stato Cloudflare WARP SOCKS5
+app.get('/api/warp/status', async (req, res) => {
+  const cfg = storage.getConfig();
+  const warpHost = (cfg && cfg.warpHost) || '127.0.0.1:40000';
+  const start = Date.now();
+
+  try {
+    const agent = getWarpAgent();
+    if (!agent) {
+      return res.json({
+        success: false,
+        online: false,
+        host: warpHost,
+        error: 'Configurazione proxy WARP non valida.'
+      });
+    }
+
+    const resp = await axios.get('https://www.cloudflare.com/cdn-cgi/trace', {
+      httpAgent: agent,
+      httpsAgent: agent,
+      timeout: 6000
+    });
+
+    const pingMs = Date.now() - start;
+    const traceData = {};
+    String(resp.data).split('\n').forEach(line => {
+      const idx = line.indexOf('=');
+      if (idx > 0) {
+        const k = line.substring(0, idx).trim();
+        const v = line.substring(idx + 1).trim();
+        traceData[k] = v;
+      }
+    });
+
+    const isWarp = traceData.warp === 'on' || traceData.warp === 'plus';
+
+    res.json({
+      success: true,
+      online: true,
+      isWarp,
+      ip: traceData.ip || 'Sconosciuto',
+      colo: traceData.colo || 'N/D',
+      loc: traceData.loc || 'N/D',
+      warpType: traceData.warp || 'off',
+      pingMs,
+      enabled: cfg.warpEnabled !== false,
+      host: warpHost,
+      message: isWarp
+        ? `Cloudflare WARP attivo (IP: ${traceData.ip}, PoP: ${traceData.colo}, ${pingMs} ms)`
+        : `Proxy SOCKS5 connesso, ma WARP non attivo su Cloudflare (${traceData.ip})`
+    });
+  } catch (err) {
+    res.json({
+      success: false,
+      online: false,
+      host: warpHost,
+      error: `Proxy non raggiungibile su ${warpHost}: ${err.message}`,
+      hint: "Verifica che il servizio warp-svc sia attivo sul container Alpine ('rc-service warp-svc status') o esegui './alpine/setup-warp.sh'."
+    });
+  }
+});
+
 // -------------------------------------------------------------
 // 3c. PROXY HTTP CENTRALIZZATO MPD CLEARKEY (FFmpeg Stream Copy)
 // -------------------------------------------------------------
@@ -746,6 +831,7 @@ function cleanAndBufferMpd(manifest, targetUrl) {
 app.get('/internal/mpd', async (req, res) => {
   const targetUrl = req.query.url;
   const headersStr = req.query.headers;
+  const useWarp = req.query.warp === '1' || req.query.warp === 'true';
   if (!targetUrl) return res.status(400).send('URL mancante');
 
   try {
@@ -757,11 +843,19 @@ app.get('/internal/mpd', async (req, res) => {
         if (k && v.length) reqHeaders[k.trim()] = v.join('=').trim();
       }
     }
-    const response = await axios.get(targetUrl, {
+    const axiosOpts = {
       headers: reqHeaders,
       timeout: 10000,
       responseType: 'text'
-    });
+    };
+    if (useWarp) {
+      const agent = getWarpAgent();
+      if (agent) {
+        axiosOpts.httpAgent = agent;
+        axiosOpts.httpsAgent = agent;
+      }
+    }
+    const response = await axios.get(targetUrl, axiosOpts);
     const processed = cleanAndBufferMpd(response.data, targetUrl);
     res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -829,10 +923,27 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     return res.status(400).send(`Chiave ClearKey non valida o mancante (richiesti 32 caratteri esadecimali). Trovata: ${keyHex || 'nessuna'}`);
   }
 
+  // Rileva se il flusso deve essere instradato tramite Cloudflare WARP
+  const cfg = storage.getConfig();
+  let useWarp = req.query.warp === '1' || req.query.warp === 'true';
+  if (!useWarp && cfg && cfg.warpEnabled && channelIdOrUrl && !channelIdOrUrl.startsWith('http')) {
+    const channels = storage.getChannels();
+    const custom = storage.getCustomChannels();
+    const all = [...custom, ...channels];
+    const ch = all.find(c => c.id === channelIdOrUrl);
+    if (ch) {
+      const g = ch.customGroup || ch.group || '';
+      if (ch.useWarp || (Array.isArray(cfg.warpGroups) && cfg.warpGroups.includes(g))) {
+        useWarp = true;
+      }
+    }
+  }
+
   // Chiave identificativa univoca per la sessione stream
-  const streamKey = (channelIdOrUrl && !channelIdOrUrl.startsWith('http'))
+  const baseKey = (channelIdOrUrl && !channelIdOrUrl.startsWith('http'))
     ? channelIdOrUrl
     : `${targetUrl}#${keyHex}`;
+  const streamKey = useWarp ? `${baseKey}#warp` : baseKey;
 
   // Formatta headers per FFmpeg (-headers "Key: Value\r\n...")
   let formattedHeaders = '';
@@ -904,10 +1015,10 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   }
 
   // Costruisci URL dell'endpoint interno MPD bufferizzato
-  const internalMpdUrl = `http://127.0.0.1:${PORT}/internal/mpd?url=${encodeURIComponent(targetUrl)}${headersStr ? `&headers=${encodeURIComponent(headersStr)}` : ''}`;
+  const internalMpdUrl = `http://127.0.0.1:${PORT}/internal/mpd?url=${encodeURIComponent(targetUrl)}${headersStr ? `&headers=${encodeURIComponent(headersStr)}` : ''}${useWarp ? '&warp=1' : ''}`;
 
   // Avvio nuovo processo FFmpeg con parametri anti-buffering e stabilizzazione A/V
-  console.log(`[MPD ClearKey Proxy] Avvio nuovo processo FFmpeg per "${title}" (Key: ${keyHex.substring(0, 8)}...)...`);
+  console.log(`[MPD ClearKey Proxy] Avvio nuovo processo FFmpeg per "${title}" (Key: ${keyHex.substring(0, 8)}...${useWarp ? ' | WARP: ON' : ''})...`);
 
   const ffmpegArgs = [
     '-loglevel', 'warning',
@@ -951,9 +1062,25 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     'pipe:1'
   );
 
+  const ffmpegEnv = { ...process.env };
+  if (useWarp) {
+    const warpHost = (cfg && cfg.warpHost) || '127.0.0.1:40000';
+    const socksUrl = `socks5h://${warpHost}`;
+    const httpUrl = `http://${warpHost}`;
+    ffmpegEnv.ALL_PROXY = socksUrl;
+    ffmpegEnv.all_proxy = socksUrl;
+    ffmpegEnv.HTTP_PROXY = httpUrl;
+    ffmpegEnv.http_proxy = httpUrl;
+    ffmpegEnv.HTTPS_PROXY = httpUrl;
+    ffmpegEnv.https_proxy = httpUrl;
+    ffmpegEnv.NO_PROXY = '127.0.0.1,localhost';
+    ffmpegEnv.no_proxy = '127.0.0.1,localhost';
+    console.log(`[MPD ClearKey Proxy] Routing FFmpeg via Cloudflare WARP (${warpHost}) abilitato per "${title}"`);
+  }
+
   let ffmpegProc;
   try {
-    ffmpegProc = spawn('ffmpeg', ffmpegArgs);
+    ffmpegProc = spawn('ffmpeg', ffmpegArgs, { env: ffmpegEnv });
   } catch (err) {
     console.error(`[MPD ClearKey Proxy] Impossibile avviare FFmpeg: ${err.message}`);
     if (!res.headersSent) {
@@ -1057,25 +1184,37 @@ app.get(['/stream/htsport/epiembeds/:slug/playlist.m3u8', '/stream/htsport/epiem
   const slug = req.params.slug;
   if (!slug) return res.status(400).send('Parametro slug mancante.');
 
+  const cfg = storage.getConfig();
+  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && cfg.warpGroups.some(g => g.toLowerCase().includes('htsport')));
+
   try {
     const directM3u8Url = await HTSportService.resolveEpiEmbeds(slug);
     const host = req.get('host');
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
     const baseUrl = `${protocol}://${host}`;
 
-    const resp = await axios.get(directM3u8Url, {
+    const axiosOpts = {
       headers: {
         'Referer': 'https://epiembeds.online/',
         'Origin': 'https://epiembeds.online',
         'User-Agent': 'Mozilla/5.0'
       },
       timeout: 8000
-    });
+    };
+    if (useWarp) {
+      const agent = getWarpAgent();
+      if (agent) {
+        axiosOpts.httpAgent = agent;
+        axiosOpts.httpsAgent = agent;
+      }
+    }
+
+    const resp = await axios.get(directM3u8Url, axiosOpts);
 
     let body = resp.data;
     // Riscrive tutti i chunk video verso il proxy locale che rimuove il falso header WebP
     body = body.replace(/(https?:\/\/[^\r\n]+)/g, (match) => {
-      return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(match)}`;
+      return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(match)}${useWarp ? '&warp=1' : ''}`;
     });
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
@@ -1093,14 +1232,25 @@ app.get('/stream/htsport/segment', async (req, res) => {
   const segUrl = req.query.url;
   if (!segUrl) return res.status(400).send('Parametro URL mancante.');
 
+  const useWarp = req.query.warp === '1' || req.query.warp === 'true';
+
   try {
-    const resp = await axios.get(segUrl, {
+    const axiosOpts = {
       responseType: 'arraybuffer',
       timeout: 15000,
       headers: {
         'User-Agent': 'Mozilla/5.0'
       }
-    });
+    };
+    if (useWarp) {
+      const agent = getWarpAgent();
+      if (agent) {
+        axiosOpts.httpAgent = agent;
+        axiosOpts.httpsAgent = agent;
+      }
+    }
+
+    const resp = await axios.get(segUrl, axiosOpts);
 
     const raw = Buffer.from(resp.data);
     // Cerca il sync byte MPEG-TS 0x47 nei primi 500 byte per eliminare i 42 byte di intestazione RIFF/WEBP
@@ -1128,20 +1278,43 @@ app.get(['/stream/htsport/tvnow/:id/playlist.m3u8', '/stream/htsport/tvnow/:id']
   const channelId = req.params.id;
   if (!channelId) return res.status(400).send('Parametro channelId mancante.');
 
+  const cfg = storage.getConfig();
+  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && cfg.warpGroups.some(g => g.toLowerCase().includes('htsport')));
+
   try {
     const directM3u8Url = await HTSportService.resolveTvNow(channelId);
-    const resp = await axios.get(directM3u8Url, {
+    const host = req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const baseUrl = `${protocol}://${host}`;
+
+    const axiosOpts = {
       headers: {
         'Referer': 'https://tvnow247.top/',
         'Origin': 'https://tvnow247.top',
         'User-Agent': 'Mozilla/5.0'
       },
       timeout: 8000
-    });
+    };
+    if (useWarp) {
+      const agent = getWarpAgent();
+      if (agent) {
+        axiosOpts.httpAgent = agent;
+        axiosOpts.httpsAgent = agent;
+      }
+    }
+
+    const resp = await axios.get(directM3u8Url, axiosOpts);
 
     let body = resp.data;
-    if (!body.includes('http://') && !body.includes('https://')) {
-      const baseUri = directM3u8Url.substring(0, directM3u8Url.lastIndexOf('/') + 1);
+    const baseUri = directM3u8Url.substring(0, directM3u8Url.lastIndexOf('/') + 1);
+
+    if (useWarp) {
+      // Se WARP è attivo, passa tutti i segmenti per il proxy locale per aggirare il blocco CDN
+      body = body.replace(/^(?!#)(.+)$/gm, (m) => {
+        const absUrl = (m.startsWith('http://') || m.startsWith('https://')) ? m : `${baseUri}${m}`;
+        return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(absUrl)}&warp=1`;
+      });
+    } else if (!body.includes('http://') && !body.includes('https://')) {
       body = body.replace(/^(?!#)([\w.-]+\.(?:m3u8|ts|m4s|pdf|zst)(?:\?[^\r\n]*)?)$/gm, `${baseUri}$1`);
     }
 

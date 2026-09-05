@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+name="warp-svc"
+description="Cloudflare WARP Userspace SOCKS5 Service"
+command="/usr/local/bin/warp-plus"
+command_background="yes"
+pidfile="/run/warp-svc.pid"
+output_log="/var/log/warp-svc.log"
+error_log="/var/log/warp-svc.err"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath -f -m 0644 -o root:root "$output_log" "$error_log"
+    WARP_BIND="127.0.0.1:40000"
+    WARP_KEY=""
+    if [ -f "/etc/conf.d/warp-svc" ]; then
+        . /etc/conf.d/warp-svc
+    fi
+    if [ -n "$WARP_KEY" ]; then
+        command_args="-b ${WARP_BIND} -4 -k ${WARP_KEY}"
+    else
+        command_args="-b ${WARP_BIND} -4"
+    fi
+}

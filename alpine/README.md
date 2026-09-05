@@ -113,6 +113,28 @@ Poi nella dashboard web (**⚙️ Impostazioni -> Proxy MPD ClearKey**) spunta l
 
 ---
 
+## 🛡️ Cloudflare WARP SOCKS5 Userspace (Bypass Blocchi & CDN Protette)
+
+MandraKodi permette di instradare **selettivamente** solo determinati canali o interi gruppi (come HTSport o stream MPD protetti da geoblock/filtri CDN) attraverso la rete Cloudflare WARP:
+- **Zero modifiche al kernel o a `/dev/net/tun`**: gira completamente in userspace e non richiede permessi speciali su container Proxmox unprivileged.
+- **Rete locale preservata**: il traffico del server verso la LAN, AceStream Engine e i client IPTV rimane diretto e ad altissima velocità.
+
+### Installazione su Alpine Linux con 1 Comando:
+```sh
+cd /opt/mandrakodi
+chmod +x alpine/*.sh
+./alpine/setup-warp.sh
+```
+
+Lo script:
+1. Scarica il binario userspace `warp-plus` per l'architettura del tuo container (`amd64` o `arm64`).
+2. Configura il servizio OpenRC `/etc/init.d/warp-svc` in ascolto sulla porta locale SOCKS5 `127.0.0.1:40000`.
+3. Avvia il servizio e lo imposta per l'avvio automatico al boot.
+
+Nella Dashboard Web (**⚙️ Impostazioni -> Cloudflare WARP**), attiva il toggle, clicca su **🔍 Testa Connessione WARP** per verificare lo stato e l'IP pubblico, e attiva WARP per i canali o gruppi desiderati.
+
+---
+
 ## 🏎️ Impostazioni Consigliate su Proxmox VE per Massime Prestazioni
 
 Per garantire uno streaming IPTV fluido, reattivo e a zero lag verso tutti i tuoi dispositivi (Smart TV, Kodi, VLC, smartphone), ecco la configurazione consigliata per il container LXC Alpine Linux su Proxmox VE:

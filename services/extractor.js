@@ -805,8 +805,9 @@ class ExtractorEngine {
         let proxyEnabled = true;
         let aceHost = '127.0.0.1:6878';
         let mpdProxyEnabled = false;
+        let cfg = null;
         try {
-          const cfg = require('./storage').getConfig();
+          cfg = require('./storage').getConfig();
           if (cfg) {
             if (cfg.aceStreamProxyEnabled !== undefined) proxyEnabled = cfg.aceStreamProxyEnabled;
             if (cfg.aceStreamHost) aceHost = cfg.aceStreamHost;
@@ -822,6 +823,15 @@ class ExtractorEngine {
           if (match) aceHash = match[1];
         }
 
+        // Verifica se il canale deve usare il proxy Cloudflare WARP (per singolo canale o per gruppo)
+        const isWarpActive = !!(cfg && cfg.warpEnabled && (ch.useWarp === true || (Array.isArray(cfg.warpGroups) && cfg.warpGroups.includes(groupName))));
+        const warpQueryParam = isWarpActive ? 'warp=1' : '';
+
+        const appendParam = (uri, q) => {
+          if (!q) return uri;
+          return uri.includes('?') ? `${uri}&${q}` : `${uri}?${q}`;
+        };
+
         if (aceHash) {
           isAce = true;
           if (baseUrl && proxyEnabled) {
@@ -833,14 +843,19 @@ class ExtractorEngine {
           const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
           if (hasClearKey && baseUrl && mpdProxyEnabled && ch.id) {
             isMpdProxy = true;
-            finalUrl = `${baseUrl}/stream/mpd/${ch.id}${tokenParam || ''}`;
+            let streamPath = `${baseUrl}/stream/mpd/${ch.id}`;
+            if (warpQueryParam) streamPath = appendParam(streamPath, warpQueryParam);
+            finalUrl = `${streamPath}${tokenParam ? (streamPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
           }
         }
 
-        // Riscrittura canali HTSport con il baseUrl e token correnti
+        // Riscrittura canali HTSport con il baseUrl, token e eventuale warp=1
         if (url.startsWith('/stream/htsport/') || url.includes('/stream/htsport/')) {
           if (baseUrl) {
-            const relPath = url.includes('/stream/htsport/') ? '/stream/htsport/' + url.split('/stream/htsport/')[1] : url;
+            let relPath = url.includes('/stream/htsport/') ? '/stream/htsport/' + url.split('/stream/htsport/')[1] : url;
+            if (warpQueryParam && !relPath.includes('warp=')) {
+              relPath = appendParam(relPath, warpQueryParam);
+            }
             finalUrl = `${baseUrl}${relPath}${tokenParam ? (relPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
           }
         }

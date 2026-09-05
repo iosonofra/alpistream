@@ -60,6 +60,10 @@ const DEFAULT_CONFIG = {
       enabled: false
     }
   ],
+  warpEnabled: false,
+  warpHost: '127.0.0.1:40000',
+  warpLicenseKey: '',
+  warpGroups: [],
   groupOrder: []
 };
 
@@ -140,7 +144,10 @@ function renameGroup(oldName, newName) {
 
 module.exports = {
   DATA_DIR,
-  getConfig: () => readJsonFile(CONFIG_FILE, DEFAULT_CONFIG),
+  getConfig: () => {
+    const loaded = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
+    return { ...DEFAULT_CONFIG, ...loaded };
+  },
   saveConfig: (cfg) => writeJsonFile(CONFIG_FILE, { ...DEFAULT_CONFIG, ...cfg }),
   getChannels: () => readJsonFile(CHANNELS_FILE, []),
   saveChannels: (channels) => writeJsonFile(CHANNELS_FILE, channels),

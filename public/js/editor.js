@@ -66,6 +66,7 @@ async function loadChannels(page = 1) {
           <strong class="ch-title"></strong>
           ${ch.isCustom ? ' <span class="badge" style="background: rgba(88, 166, 255, 0.2); color: #58a6ff;">Custom</span>' : ''}
           ${ch.clearkey ? ' <span class="badge" style="background: rgba(138, 43, 226, 0.15); color: #c084fc;">DRM</span>' : ''}
+          ${ch.useWarp ? ' <span class="badge" style="background: rgba(249, 115, 22, 0.18); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4);">🛡️ WARP</span>' : ''}
         </td>
         <td><span class="badge badge-group">${ch.group || 'Generale'}</span></td>
         <td>
@@ -254,6 +255,9 @@ function openEditModal(ch) {
   document.getElementById('edit-channel-group').value = ch.group || '';
   document.getElementById('edit-channel-logo').value = ch.logo || '';
   document.getElementById('edit-channel-tvgid').value = ch.tvgId || '';
+  if (document.getElementById('edit-channel-warp')) {
+    document.getElementById('edit-channel-warp').checked = ch.useWarp === true;
+  }
 
   document.getElementById('edit-modal').classList.add('active');
 }
@@ -268,12 +272,13 @@ document.getElementById('btn-save-channel-edit').addEventListener('click', async
   const group = document.getElementById('edit-channel-group').value.trim();
   const logo = document.getElementById('edit-channel-logo').value.trim();
   const tvgId = document.getElementById('edit-channel-tvgid').value.trim();
+  const useWarp = document.getElementById('edit-channel-warp') ? document.getElementById('edit-channel-warp').checked : false;
 
   try {
     const res = await fetch(`/api/channels/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, group, logo, tvgId })
+      body: JSON.stringify({ title, group, logo, tvgId, useWarp })
     });
     if (res.ok) {
       showToast('Canale modificato!');

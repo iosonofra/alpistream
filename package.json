@@ -7,13 +7,22 @@
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
-  "keywords": ["mandrakodi", "iptv", "m3u", "epg", "xmltv", "proxmox", "alpine"],
+  "keywords": [
+    "mandrakodi",
+    "iptv",
+    "m3u",
+    "epg",
+    "xmltv",
+    "proxmox",
+    "alpine"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.7.9",
     "compression": "^1.7.5",
     "express": "^4.21.2",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "socks-proxy-agent": "^10.1.0"
   }
 }

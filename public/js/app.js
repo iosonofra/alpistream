@@ -216,7 +216,53 @@ async function loadSettings() {
     if (document.getElementById('setting-mpd-proxy')) {
       document.getElementById('setting-mpd-proxy').checked = appConfig.mpdProxyEnabled === true;
     }
+    if (document.getElementById('setting-warp-enabled')) {
+      document.getElementById('setting-warp-enabled').checked = appConfig.warpEnabled === true;
+    }
+    if (document.getElementById('setting-warp-host')) {
+      document.getElementById('setting-warp-host').value = appConfig.warpHost || '127.0.0.1:40000';
+    }
+    if (document.getElementById('setting-warp-license')) {
+      document.getElementById('setting-warp-license').value = appConfig.warpLicenseKey || '';
+    }
+
+    loadWarpGroupsSelector(appConfig.warpGroups || []);
   } catch (e) {}
+}
+
+async function loadWarpGroupsSelector(selectedGroups = []) {
+  const container = document.getElementById('warp-groups-container');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/channels?limit=1');
+    const data = await res.json();
+    const groups = data.groups || [];
+
+    container.innerHTML = '';
+    if (groups.length === 0) {
+      container.innerHTML = '<span class="text-muted" style="font-size: 0.85rem;">Nessun gruppo disponibile.</span>';
+      return;
+    }
+
+    groups.forEach(g => {
+      const label = document.createElement('label');
+      label.style.cssText = 'display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: rgba(255,255,255,0.05); border-radius: 4px; font-size: 0.82rem; cursor: pointer; user-select: none;';
+      
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.value = g;
+      chk.className = 'warp-group-check';
+      chk.checked = selectedGroups.includes(g);
+      chk.style.cursor = 'pointer';
+
+      label.appendChild(chk);
+      label.appendChild(document.createTextNode(g));
+      container.appendChild(label);
+    });
+  } catch (err) {
+    container.innerHTML = '<span class="text-muted">Impossibile caricare i gruppi</span>';
+  }
 }
 
 document.getElementById('form-settings').addEventListener('submit', async (e) => {
@@ -226,6 +272,12 @@ document.getElementById('form-settings').addEventListener('submit', async (e) =>
   const aceProxy = document.getElementById('setting-acestream-proxy') ? document.getElementById('setting-acestream-proxy').checked : true;
   const aceHost = document.getElementById('setting-acestream-host') ? document.getElementById('setting-acestream-host').value.trim() || '127.0.0.1:6878' : '127.0.0.1:6878';
   const mpdProxy = document.getElementById('setting-mpd-proxy') ? document.getElementById('setting-mpd-proxy').checked : false;
+  const warpEnabled = document.getElementById('setting-warp-enabled') ? document.getElementById('setting-warp-enabled').checked : false;
+  const warpHost = document.getElementById('setting-warp-host') ? document.getElementById('setting-warp-host').value.trim() || '127.0.0.1:40000' : '127.0.0.1:40000';
+  const warpLicense = document.getElementById('setting-warp-license') ? document.getElementById('setting-warp-license').value.trim() : '';
+
+  const checkedWarpGroups = [];
+  document.querySelectorAll('.warp-group-check:checked').forEach(c => checkedWarpGroups.push(c.value));
 
   try {
     const res = await fetch('/api/config', {
@@ -237,7 +289,11 @@ document.getElementById('form-settings').addEventListener('submit', async (e) =>
         authToken: token,
         aceStreamProxyEnabled: aceProxy,
         aceStreamHost: aceHost,
-        mpdProxyEnabled: mpdProxy
+        mpdProxyEnabled: mpdProxy,
+        warpEnabled: warpEnabled,
+        warpHost: warpHost,
+        warpLicenseKey: warpLicense,
+        warpGroups: checkedWarpGroups
       })
     });
     if (res.ok) {
@@ -296,6 +352,33 @@ if (btnTestFfmpeg) {
       badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ Errore: ${err.message}</span>`;
     } finally {
       btnTestFfmpeg.disabled = false;
+    }
+  });
+}
+
+// Test Connessione Cloudflare WARP SOCKS5
+const btnTestWarp = document.getElementById('btn-test-warp');
+if (btnTestWarp) {
+  btnTestWarp.addEventListener('click', async () => {
+    const badge = document.getElementById('warp-status-badge');
+    if (!badge) return;
+    badge.innerHTML = '<span class="text-muted">⏳ Test connessione Cloudflare WARP in corso...</span>';
+    btnTestWarp.disabled = true;
+
+    try {
+      const res = await fetch('/api/warp/status');
+      const data = await res.json();
+      if (data.online && data.isWarp) {
+        badge.innerHTML = `<span style="color: #4ade80; font-weight: 600;">✅ ${data.message}</span>`;
+      } else if (data.online) {
+        badge.innerHTML = `<span style="color: #fbbf24; font-weight: 500;">⚠️ ${data.message}</span>`;
+      } else {
+        badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ ${data.error} ${data.hint ? `<br><small class="text-muted">${data.hint}</small>` : ''}</span>`;
+      }
+    } catch (err) {
+      badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ Errore test: ${err.message}</span>`;
+    } finally {
+      btnTestWarp.disabled = false;
     }
   });
 }
