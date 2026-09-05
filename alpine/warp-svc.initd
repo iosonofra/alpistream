@@ -2,7 +2,9 @@
 name="warp-svc"
 description="Cloudflare WARP Userspace SOCKS5 Service"
 command="/usr/local/bin/warp-plus"
+command_args="${command_args:--b 127.0.0.1:40000 -4 --cache-dir /var/lib/warp-plus}"
 command_background="yes"
+directory="/var/lib/warp-plus"
 pidfile="/run/warp-svc.pid"
 output_log="/var/log/warp-svc.log"
 error_log="/var/log/warp-svc.err"
@@ -13,15 +15,6 @@ depend() {
 }
 
 start_pre() {
+    checkpath -d -m 0755 -o root:root /var/lib/warp-plus
     checkpath -f -m 0644 -o root:root "$output_log" "$error_log"
-    WARP_BIND="127.0.0.1:40000"
-    WARP_KEY=""
-    if [ -f "/etc/conf.d/warp-svc" ]; then
-        . /etc/conf.d/warp-svc
-    fi
-    if [ -n "$WARP_KEY" ]; then
-        command_args="-b ${WARP_BIND} -4 -k ${WARP_KEY}"
-    else
-        command_args="-b ${WARP_BIND} -4"
-    fi
 }

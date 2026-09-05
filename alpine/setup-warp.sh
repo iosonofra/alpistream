@@ -68,7 +68,9 @@ else
 name="warp-svc"
 description="Cloudflare WARP Userspace SOCKS5 Service"
 command="/usr/local/bin/warp-plus"
+command_args="${command_args:--b 127.0.0.1:40000 -4 --cache-dir /var/lib/warp-plus}"
 command_background="yes"
+directory="/var/lib/warp-plus"
 pidfile="/run/warp-svc.pid"
 output_log="/var/log/warp-svc.log"
 error_log="/var/log/warp-svc.err"
@@ -79,29 +81,20 @@ depend() {
 }
 
 start_pre() {
+    checkpath -d -m 0755 -o root:root /var/lib/warp-plus
     checkpath -f -m 0644 -o root:root "$output_log" "$error_log"
-    WARP_BIND="127.0.0.1:40000"
-    WARP_KEY=""
-    if [ -f "/etc/conf.d/warp-svc" ]; then
-        . /etc/conf.d/warp-svc
-    fi
-    if [ -n "$WARP_KEY" ]; then
-        command_args="-b ${WARP_BIND} -4 -k ${WARP_KEY}"
-    else
-        command_args="-b ${WARP_BIND} -4"
-    fi
 }
 EOF
 fi
 
 chmod +x /etc/init.d/warp-svc
+mkdir -p /var/lib/warp-plus
 
 # 5. File di configurazione parametri (se non esiste già)
 if [ ! -f "/etc/conf.d/warp-svc" ]; then
     cat << 'EOF' > /etc/conf.d/warp-svc
 # Configurazione Cloudflare WARP Userspace SOCKS5 Service
-WARP_BIND="127.0.0.1:40000"
-WARP_KEY=""
+command_args="-b 127.0.0.1:40000 -4 --cache-dir /var/lib/warp-plus"
 EOF
 fi
 
@@ -110,15 +103,12 @@ echo "[+] Configurazione avvio automatico (OpenRC)..."
 rc-update add warp-svc default 2>/dev/null || true
 
 echo "[+] Avvio servizio warp-svc..."
-if rc-service warp-svc status >/dev/null 2>&1; then
-    rc-service warp-svc restart
-else
-    rc-service warp-svc start
-fi
+rc-service warp-svc zap 2>/dev/null || true
+rc-service warp-svc restart
 
 # 7. Test diagnostico
-echo "[+] Attesa avvio socket proxy (3 secondi)..."
-sleep 3
+echo "[+] Attesa avvio socket proxy (4 secondi)..."
+sleep 4
 
 echo "[+] Test connessione Cloudflare WARP via SOCKS5..."
 if curl -s --socks5-hostname 127.0.0.1:40000 -m 8 https://www.cloudflare.com/cdn-cgi/trace | grep -q "warp=on"; then
@@ -129,8 +119,16 @@ if curl -s --socks5-hostname 127.0.0.1:40000 -m 8 https://www.cloudflare.com/cdn
     echo "======================================================="
 else
     echo "======================================================="
-    echo "  Servizio avviato. Controlla lo stato da Web Manager  "
-    echo "  o con: rc-service warp-svc status                   "
+    echo "  Controllo stato e log di warp-svc:                  "
+    rc-service warp-svc status || true
+    if [ -f "/var/log/warp-svc.err" ]; then
+        echo "--- Log errori (/var/log/warp-svc.err) ---"
+        tail -n 15 /var/log/warp-svc.err
+    fi
+    if [ -f "/var/log/warp-svc.log" ]; then
+        echo "--- Log output (/var/log/warp-svc.log) ---"
+        tail -n 15 /var/log/warp-svc.log
+    fi
     echo "======================================================="
 fi
 
@@ -139,12 +137,12 @@ INSTALL_DIR="/opt/mandrakodi"
 if [ -d "$INSTALL_DIR" ]; then
     cd "$INSTALL_DIR"
     if [ -f "package.json" ]; then
-        echo "[+] Verifica dipendenze NPM per il supporto SOCKS5..."
-        npm install --production --no-audit >/dev/null 2>&1 || true
+        echo "[+] Controllo dipendenze NPM..."
+        npm install --production --no-audit
     fi
 fi
 
 if rc-service mandrakodi status >/dev/null 2>&1; then
-    echo "[+] Riavvio servizio mandrakodi in corso per agganciare WARP..."
+    echo "[+] Riavvio del servizio mandrakodi in corso..."
     rc-service mandrakodi restart
 fi
