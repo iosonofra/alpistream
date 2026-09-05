@@ -68,7 +68,7 @@ else
 name="warp-svc"
 description="Cloudflare WARP Userspace SOCKS5 Service"
 command="/usr/local/bin/warp-plus"
-command_args="${command_args:--b 127.0.0.1:40000 -4 -e 162.159.192.1:2408 --cache-dir /var/lib/warp-plus}"
+command_args="${command_args:--b 127.0.0.1:40000 -4 -e 162.159.192.1:2408 --test-url http://www.google.com --cache-dir /var/lib/warp-plus}"
 command_background="yes"
 directory="/var/lib/warp-plus"
 pidfile="/run/warp-svc.pid"
@@ -93,7 +93,7 @@ mkdir -p /var/lib/warp-plus
 # 5. File di configurazione parametri
 cat << 'EOF' > /etc/conf.d/warp-svc
 # Configurazione Cloudflare WARP Userspace SOCKS5 Service
-command_args="-b 127.0.0.1:40000 -4 -e 162.159.192.1:2408 --cache-dir /var/lib/warp-plus"
+command_args="-b 127.0.0.1:40000 -4 -e 162.159.192.1:2408 --test-url http://www.google.com --cache-dir /var/lib/warp-plus"
 EOF
 
 # 6. Abilitazione all'avvio e avvio immediato del servizio
