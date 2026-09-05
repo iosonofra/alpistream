@@ -163,7 +163,10 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           enableWorker: false,
           lazyLoadMaxDuration: 3 * 60,
           seekType: 'range',
-          liveBufferLatencyChasing: true
+          liveBufferLatencyChasing: false,
+          liveBufferLatencyMaxLatency: 5,
+          liveBufferLatencyMinRemain: 1.5,
+          autoCleanupSourceBuffer: true
         });
         mpegPlayer.on(mpegts.Events.ERROR, (t, d, i) => console.warn('[AceStream mpegts Error]', t, d, i));
         mpegPlayer.attachMediaElement(videoEl);
@@ -231,7 +234,10 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           enableWorker: false,
           lazyLoadMaxDuration: 3 * 60,
           seekType: 'range',
-          liveBufferLatencyChasing: true
+          liveBufferLatencyChasing: false,
+          liveBufferLatencyMaxLatency: 5,
+          liveBufferLatencyMinRemain: 1.5,
+          autoCleanupSourceBuffer: true
         });
 
         mpegPlayer.on(mpegts.Events.ERROR, (errType, errDetail, errInfo) => {
@@ -292,25 +298,38 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
         }
       });
 
-      // Configurazione ClearKey DRM EME
+      // Configurazione ClearKey DRM EME e Ottimizzazioni Anti-Buffering Live Streaming
       playerInstance.configure({
         drm: {
           clearKeys: clearKeysMap
         },
         manifest: {
           dash: {
-            ignoreMinBufferTime: true
+            ignoreMinBufferTime: false,
+            defaultPresentationDelay: 12 // Mantiene 12s di margine sul live edge (segmenti sempre pronti e stabili sulla CDN)
           }
         },
         streaming: {
-          bufferingGoal: 10,
-          rebufferingGoal: 2,
+          bufferingGoal: 25, // Bufferizza fino a 25 secondi in avanti per assorbire fluttuazioni di rete
+          rebufferingGoal: 4, // Attende 4 secondi prima di riprendere dopo un calo
+          bufferBehind: 30, // Mantiene 30 secondi di buffer già riprodotto
+          safeSeekOffset: 5,
+          stallEnabled: true,
+          stallThreshold: 1.5,
+          stallSkip: 0.5,
+          lowLatencyMode: false, // Disabilita low latency estremo che affama il buffer su stream proxy/WARP
+          alwaysStreamRangeToBuffer: true,
           retryParameters: {
-            maxAttempts: 2,
+            maxAttempts: 4,
             baseDelay: 500,
             backoffFactor: 1.5,
-            timeout: 6000
+            timeout: 10000
           }
+        },
+        abr: {
+          enabled: true,
+          defaultBandwidthEstimate: 5000000, // 5 Mbps: parte subito in alta qualità senza continui salti di risoluzione
+          switchInterval: 8 // Limita il cambio traccia a intervalli di 8s per evitare micro-scatti
         }
       });
 

@@ -3,6 +3,7 @@ const axios = require('axios');
 const compression = require('compression');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 const net = require('net');
 const { spawn, exec } = require('child_process');
 let SocksProxyAgent;
@@ -12,21 +13,42 @@ try {
   console.warn('[WARP Proxy] Modulo socks-proxy-agent non trovato. Esegui npm install sul server.');
 }
 
-const storage = require('./services/storage');
-const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
-const epgManager = require('./services/epg');
-const eventsManager = require('./services/events');
-const scheduler = require('./services/scheduler');
-const HTSportService = require('./services/htsport');
+// Persistent HTTP/HTTPS Keep-Alive Agents per abbattere la latenza di handshake sui segmenti video
+const httpKeepAliveAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  timeout: 30000
+});
 
-// Helper per ottenere l'agente proxy Cloudflare WARP SOCKS5
+const httpsKeepAliveAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  timeout: 30000
+});
+
+let cachedWarpAgent = null;
+let cachedWarpUrl = null;
+
+// Helper per ottenere l'agente proxy Cloudflare WARP SOCKS5 con connessione persistente Keep-Alive
 function getWarpAgent() {
   if (!SocksProxyAgent) return null;
   const cfg = storage.getConfig();
   const rawHost = (cfg && cfg.warpHost) || '127.0.0.1:40000';
   const proxyUrl = rawHost.includes('://') ? rawHost : `socks5h://${rawHost}`;
+  if (cachedWarpAgent && cachedWarpUrl === proxyUrl) {
+    return cachedWarpAgent;
+  }
   try {
-    return new SocksProxyAgent(proxyUrl);
+    cachedWarpAgent = new SocksProxyAgent(proxyUrl, {
+      keepAlive: true,
+      maxSockets: 64,
+      maxFreeSockets: 16,
+      timeout: 30000
+    });
+    cachedWarpUrl = proxyUrl;
+    return cachedWarpAgent;
   } catch (err) {
     console.error(`[WARP Proxy] Errore inizializzazione SocksProxyAgent: ${err.message}`);
     return null;
@@ -401,7 +423,9 @@ app.get('/api/stream/proxy', async (req, res) => {
       headers,
       responseType: 'stream',
       timeout: 15000,
-      validateStatus: (s) => s >= 200 && s < 400
+      validateStatus: (s) => s >= 200 && s < 400,
+      httpAgent: httpKeepAliveAgent,
+      httpsAgent: httpsKeepAliveAgent
     };
     if (useWarp) {
       const agent = getWarpAgent();
@@ -413,6 +437,12 @@ app.get('/api/stream/proxy', async (req, res) => {
 
     const response = await axios.get(url, axiosOpts);
 
+    req.on('close', () => {
+      if (response && response.data && typeof response.data.destroy === 'function') {
+        response.data.destroy();
+      }
+    });
+
     const isMpd = url.includes('.mpd') || (response.headers['content-type'] && response.headers['content-type'].includes('xml'));
     const isM3u8 = url.includes('.m3u8') || (response.headers['content-type'] && (response.headers['content-type'].includes('mpegurl') || response.headers['content-type'].includes('x-mpegURL')));
 
@@ -420,6 +450,7 @@ app.get('/api/stream/proxy', async (req, res) => {
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+    res.setHeader('X-Accel-Buffering', 'no');
 
     if (isMpd) {
       const chunks = [];
@@ -458,6 +489,7 @@ app.get('/api/stream/proxy', async (req, res) => {
         }
 
         res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.setHeader('Content-Length', Buffer.byteLength(xml, 'utf-8'));
         res.status(200).send(xml);
       });
@@ -487,6 +519,7 @@ app.get('/api/stream/proxy', async (req, res) => {
         });
 
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.setHeader('Content-Length', Buffer.byteLength(m3u8Str, 'utf-8'));
         res.status(200).send(m3u8Str);
       });
@@ -504,6 +537,13 @@ app.get('/api/stream/proxy', async (req, res) => {
     }
     if (response.headers['content-length']) {
       res.setHeader('Content-Length', response.headers['content-length']);
+    }
+
+    // Segmenti video/audio: permetti caching locale nel browser per evitare re-fetch
+    if (isM3u8) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=60');
     }
 
     res.status(response.status);
@@ -917,12 +957,12 @@ function cleanAndBufferMpd(manifest, targetUrl) {
     return '';
   });
 
-  // 4. Trimming di sicurezza del SegmentTimeline (5 segmenti di margine = ~18-20s di live buffer)
-  // Garantisce che ogni segmento richiesto da FFmpeg sia già stato interamente caricato sulla CDN
+  // 4. Trimming di sicurezza del SegmentTimeline (1-2 segmenti di margine)
+  // Garantisce che ogni segmento richiesto da FFmpeg sia già presente sulla CDN senza svuotare la sliding window
   cleaned = cleaned.replace(/<SegmentTimeline>([\s\S]*?)<\/SegmentTimeline>/gi, (m) => {
     const sTags = m.match(/<S\b[^>]*\/?>/g) || [];
-    if (sTags.length <= 5) return m;
-    const keep = sTags.slice(0, sTags.length - 5);
+    if (sTags.length <= 4) return m;
+    const keep = sTags.slice(0, sTags.length - 2);
     return "<SegmentTimeline>\n              " + keep.join("\n              ") + "\n            </SegmentTimeline>";
   });
 
@@ -948,7 +988,9 @@ app.get('/internal/mpd', async (req, res) => {
     const axiosOpts = {
       headers: reqHeaders,
       timeout: 10000,
-      responseType: 'text'
+      responseType: 'text',
+      httpAgent: httpKeepAliveAgent,
+      httpsAgent: httpsKeepAliveAgent
     };
     if (useWarp) {
       const agent = getWarpAgent();
@@ -1158,7 +1200,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     '-reconnect_delay_max', '2',
     '-rw_timeout', '15000000',
     '-tcp_nodelay', '1',
-    '-fflags', '+genpts',
+    '-fflags', '+genpts+discardcorrupt',
   ];
 
   if (formattedHeaders) {
@@ -1182,13 +1224,16 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     '-b:a', '128k',
     '-af', 'aresample=async=1',
 
-    // Parametri di muxing MPEG-TS stabili per Smart TV e VLC
+    // Parametri di muxing MPEG-TS a bassa latenza e throughput costante
     '-max_muxing_queue_size', '4096',
+    '-flush_packets', '1',
+    '-muxdelay', '0.1',
     '-f', 'mpegts',
     '-mpegts_flags', '+resend_headers',
     '-pcr_period', '20',
     'pipe:1'
   );
+
 
   const ffmpegEnv = { ...process.env };
   if (useWarp) {
