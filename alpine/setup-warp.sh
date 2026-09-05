@@ -4,6 +4,9 @@
 
 set -e
 
+# Determina directory assoluta dello script prima di qualsiasi cambio directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 echo "======================================================="
 echo "  Installazione Cloudflare WARP SOCKS5 su Alpine Linux "
 echo "======================================================="
@@ -53,7 +56,6 @@ cd /
 rm -rf "$TMP_DIR"
 
 # 4. Configurazione servizio OpenRC
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "[+] Registrazione servizio OpenRC /etc/init.d/warp-svc..."
 
 if [ -f "$SCRIPT_DIR/warp-svc.initd" ]; then
