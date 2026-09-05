@@ -147,7 +147,31 @@ Qualsiasi dispositivo nella tua rete (Smart TV, Fire TV Stick con TiviMate, Appl
 
 ---
 
-## 6. 📺 Come Inserire la Playlist sui Tuoi Dispositivi IPTV
+## 6. 🔐 Proxy MPD ClearKey Centralizzato (Zero DRM sui Client)
+
+MandraKodi Web Manager include anche un **Proxy HTTP Centralizzato per canali MPEG-DASH (MPD) protetti da ClearKey DRM** (oltre 250 canali Sky, Sport, Cinema e Intrattenimento):
+
+### A cosa serve?
+Nativamente, i canali MPD con ClearKey funzionano solo su Kodi o browser con modulo EME. La quasi totalità delle **Smart TV (Samsung Tizen, LG webOS)**, **Apple TV**, **VLC** e box IPTV non supportano ClearKey e non riescono a riprodurre questi canali.
+Attivando il proxy, il server MandraKodi **decifra al volo i segmenti protetti con FFmpeg** e li ritrasmette come flusso continuo MPEG-TS (`http://<IP_SERVER>:3000/stream/mpd/<channel_id>`) con **zero transcodifica (stream copy a carico CPU quasi nullo)**.
+
+### Requisiti sul Server:
+Assicurati che `ffmpeg` sia installato (l'installer `install.sh` lo include già):
+```sh
+apk add --no-cache ffmpeg
+```
+
+### Attivazione nella Dashboard:
+1. Apri la Dashboard Web -> **⚙️ Impostazioni**.
+2. Nella sezione **🔐 Proxy MPD ClearKey Centralizzato**:
+   - Spunta **Abilita decodifica centralizzata canali MPD ClearKey tramite FFmpeg**.
+   - Clicca su **🔍 Testa FFmpeg** per verificare la presenza del binario sul server.
+   - Clicca su **💾 Salva Impostazioni**.
+3. Da questo momento, qualsiasi Smart TV o VLC che apre la playlist `http://<IP_SERVER>:3000/playlist.m3u` riprodurrà all'istante anche i canali MPD ClearKey!
+
+---
+
+## 7. 📺 Come Inserire la Playlist sui Tuoi Dispositivi IPTV
 
 Configura il tuo client preferito (TiviMate, IPTV Smarters, Kodi PVR IPTV Simple Client, VLC):
 
@@ -160,11 +184,11 @@ Configura il tuo client preferito (TiviMate, IPTV Smarters, Kodi PVR IPTV Simple
   http://<IP_DEL_SERVER>:3000/epg.xml
   ```
 
-Tutti i canali AceStream inclusi nella playlist verranno automaticamente instradati dal server locale verso il player video, garantendo visione istantanea e buffering fluido.
+Tutti i canali AceStream e MPD ClearKey inclusi nella playlist verranno automaticamente instradati dal server locale verso il player video in formato MPEG-TS universale, garantendo visione istantanea su qualunque dispositivo.
 
 ---
 
-## 7. 🕹️ Comandi Utili per il Container Alpine (OpenRC)
+## 8. 🕹️ Comandi Utili per il Container Alpine (OpenRC)
 
 - **Stato del servizio**: `rc-service mandrakodi status`
 - **Riavvia l'applicazione**: `rc-service mandrakodi restart`

@@ -492,6 +492,35 @@
                   </small>
                 </div>
 
+                <div class="card-divider" style="margin: 24px 0; border-top: 1px solid var(--border-color, #333);"></div>
+                <h4 style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+                  <span>🔐</span> Proxy MPD ClearKey Centralizzato (FFmpeg Stream Copy)
+                </h4>
+                
+                <div class="form-group">
+                  <div class="form-check form-switch" style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <input class="form-check-input" type="checkbox" id="setting-mpd-proxy" style="width: 20px; height: 20px; cursor: pointer;">
+                    <label class="form-check-label" for="setting-mpd-proxy" style="cursor: pointer; font-weight: 500;">
+                      Abilita decodifica centralizzata canali MPD ClearKey tramite FFmpeg (per Smart TV, VLC e client IPTV non-Kodi)
+                    </label>
+                  </div>
+                  <small class="text-muted" style="display: block;">
+                    Se abilitato, tutti i canali protetti da ClearKey DRM (oltre 250 canali Sky, Sport, Cinema) verranno decifrati al volo dal server in streaming continuo MPEG-TS senza transcodifica (stream copy a zero carico CPU), rendendoli riproducibili su qualsiasi Smart TV (Samsung/LG), VLC o TV box senza bisogno di moduli DRM.
+                  </small>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                  <label>Stato Componente FFmpeg sul Server</label>
+                  <div style="display: flex; gap: 10px; align-items: center;">
+                    <div id="ffmpeg-status-badge" style="flex: 1; padding: 10px 14px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color, #333); border-radius: 6px; font-size: 0.88rem;">
+                      <span class="text-muted">In attesa di verifica...</span>
+                    </div>
+                    <button type="button" id="btn-test-ffmpeg" class="btn btn-secondary" style="white-space: nowrap; padding: 10px 16px;">
+                      🔍 Testa FFmpeg
+                    </button>
+                  </div>
+                </div>
+
                 <button type="submit" class="btn btn-primary" style="margin-top: 20px;">💾 Salva Impostazioni</button>
               </form>
             </div>

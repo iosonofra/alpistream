@@ -98,6 +98,21 @@ Tutti i dispositivi che usano la playlist `http://<IP_MANDRAKODI>:3000/playlist.
 
 ---
 
+## 🔐 Proxy MPD ClearKey Centralizzato (FFmpeg Stream Copy)
+
+MandraKodi Web Manager include un secondo proxy centralizzato per i canali **MPEG-DASH protetti da ClearKey DRM (KID:KEY)**:
+I segmenti `.m4s` cifrati vengono decifrati al volo sul server tramite **FFmpeg in modalità stream copy** (`-c copy`) e incapsulati in normale streaming HTTP MPEG-TS (`/stream/mpd/:channelId`).
+In questo modo anche **VLC**, **Smart TV Samsung/LG**, **Apple TV** e box IPTV privi di supporto DRM possono riprodurre i canali Sky, Sport e Cinema presenti nella playlist!
+
+### Requisiti sul Container Alpine:
+Installa FFmpeg sul container LXC con:
+```sh
+apk add --no-cache ffmpeg
+```
+Poi nella dashboard web (**⚙️ Impostazioni -> Proxy MPD ClearKey**) spunta la casella di abilitazione e salva.
+
+---
+
 ## 🏎️ Impostazioni Consigliate su Proxmox VE per Massime Prestazioni
 
 Per garantire uno streaming IPTV fluido, reattivo e a zero lag verso tutti i tuoi dispositivi (Smart TV, Kodi, VLC, smartphone), ecco la configurazione consigliata per il container LXC Alpine Linux su Proxmox VE:

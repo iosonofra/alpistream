@@ -213,6 +213,9 @@ async function loadSettings() {
     if (document.getElementById('setting-acestream-host')) {
       document.getElementById('setting-acestream-host').value = appConfig.aceStreamHost || '127.0.0.1:6878';
     }
+    if (document.getElementById('setting-mpd-proxy')) {
+      document.getElementById('setting-mpd-proxy').checked = appConfig.mpdProxyEnabled === true;
+    }
   } catch (e) {}
 }
 
@@ -222,6 +225,7 @@ document.getElementById('form-settings').addEventListener('submit', async (e) =>
   const token = document.getElementById('setting-token').value.trim();
   const aceProxy = document.getElementById('setting-acestream-proxy') ? document.getElementById('setting-acestream-proxy').checked : true;
   const aceHost = document.getElementById('setting-acestream-host') ? document.getElementById('setting-acestream-host').value.trim() || '127.0.0.1:6878' : '127.0.0.1:6878';
+  const mpdProxy = document.getElementById('setting-mpd-proxy') ? document.getElementById('setting-mpd-proxy').checked : false;
 
   try {
     const res = await fetch('/api/config', {
@@ -232,7 +236,8 @@ document.getElementById('form-settings').addEventListener('submit', async (e) =>
         cronSchedule: schedule,
         authToken: token,
         aceStreamProxyEnabled: aceProxy,
-        aceStreamHost: aceHost
+        aceStreamHost: aceHost,
+        mpdProxyEnabled: mpdProxy
       })
     });
     if (res.ok) {
@@ -266,6 +271,31 @@ if (btnTestAce) {
       badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ Errore test: ${err.message}</span>`;
     } finally {
       btnTestAce.disabled = false;
+    }
+  });
+}
+
+// Test Disponibilità FFmpeg
+const btnTestFfmpeg = document.getElementById('btn-test-ffmpeg');
+if (btnTestFfmpeg) {
+  btnTestFfmpeg.addEventListener('click', async () => {
+    const badge = document.getElementById('ffmpeg-status-badge');
+    if (!badge) return;
+    badge.innerHTML = '<span class="text-muted">⏳ Verifica presenza FFmpeg in corso...</span>';
+    btnTestFfmpeg.disabled = true;
+
+    try {
+      const res = await fetch('/api/ffmpeg/status');
+      const data = await res.json();
+      if (data.installed) {
+        badge.innerHTML = `<span style="color: #4ade80; font-weight: 600;">✅ FFmpeg Pronto! (${data.version})</span>`;
+      } else {
+        badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ FFmpeg Non Trovato: ${data.hint || data.error}</span>`;
+      }
+    } catch (err) {
+      badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ Errore: ${err.message}</span>`;
+    } finally {
+      btnTestFfmpeg.disabled = false;
     }
   });
 }
