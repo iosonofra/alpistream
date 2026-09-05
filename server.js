@@ -983,7 +983,13 @@ function cleanAndBufferMpd(manifest, targetUrl) {
 app.get('/internal/mpd', async (req, res) => {
   const targetUrl = req.query.url;
   const headersStr = req.query.headers;
-  const useWarp = req.query.warp === '1' || req.query.warp === 'true';
+  const cfg = storage.getConfig();
+  let useWarp = req.query.warp === '1' || req.query.warp === 'true';
+  if (!useWarp && cfg && cfg.warpEnabled && targetUrl) {
+    if (targetUrl.includes('asn%3A13335') || targetUrl.includes('asn:13335') || targetUrl.includes('13335')) {
+      useWarp = true;
+    }
+  }
   if (!targetUrl) return res.status(400).send('URL mancante');
 
   try {
@@ -1100,25 +1106,27 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   // Rileva se il flusso deve essere instradato tramite Cloudflare WARP
   const cfg = storage.getConfig();
   let useWarp = req.query.warp === '1' || req.query.warp === 'true';
-  if (!useWarp && cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && cfg.warpGroups.length > 0) {
-    const isGroupInWarp = (g) => {
-      if (!g) return false;
-      const lower = g.trim().toLowerCase();
-      return cfg.warpGroups.some(wg => {
-        if (!wg) return false;
-        const wgl = wg.trim().toLowerCase();
-        return wgl === lower || lower.includes(wgl) || wgl.includes(lower);
-      });
-    };
-    const channels = storage.getChannels();
-    const custom = storage.getCustomChannels();
-    const all = [...custom, ...channels];
-    const ch = all.find(c => (cleanId && (c.id === cleanId || c.id === channelIdOrUrl)) || (c.url && (c.url === targetUrl || targetUrl.includes(c.url))));
-    if (ch) {
-      const rawG = ch.customGroup || ch.group || '';
-      const cleanG = sanitizeGroupName(rawG);
-      if (ch.useWarp || isGroupInWarp(rawG) || isGroupInWarp(cleanG)) {
-        useWarp = true;
+  if (!useWarp && cfg && cfg.warpEnabled) {
+    const isWarpTitle = (title && title.toUpperCase().includes('WARP'));
+    const isWarpUrl = (targetUrl && (targetUrl.includes('asn%3A13335') || targetUrl.includes('asn:13335') || targetUrl.includes('13335')));
+    if (isWarpTitle || isWarpUrl) {
+      useWarp = true;
+    } else {
+      const channels = storage.getChannels();
+      const custom = storage.getCustomChannels();
+      const all = [...custom, ...channels];
+      const ch = all.find(c => (cleanId && (c.id === cleanId || c.id === channelIdOrUrl)) || (c.url && (c.url === targetUrl || targetUrl.includes(c.url))));
+      if (ch) {
+        const rawG = ch.customGroup || ch.group || '';
+        const cleanG = sanitizeGroupName(rawG);
+        const isGroupInWarp = (g) => {
+          if (!g || !Array.isArray(cfg.warpGroups)) return false;
+          const lower = g.trim().toLowerCase();
+          return cfg.warpGroups.some(wg => wg && (wg.trim().toLowerCase() === lower || lower.includes(wg.trim().toLowerCase())));
+        };
+        if (ch.useWarp || isGroupInWarp(rawG) || isGroupInWarp(cleanG) || (ch.title && ch.title.toUpperCase().includes('WARP'))) {
+          useWarp = true;
+        }
       }
     }
   }
@@ -1145,18 +1153,21 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     }
   }
 
-  // Scrivi header di risposta HTTP MPEG-TS
-  res.writeHead(200, {
-    'Content-Type': 'video/mp2t',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
-    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-    'Cache-Control': 'no-cache, no-store, must-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
+  const writeMpegTsHeaders = (r) => {
+    if (!r.headersSent) {
+      r.writeHead(200, {
+        'Content-Type': 'video/mp2t',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+    }
+  };
 
   // Se esiste già uno stream attivo per questo canale, riutilizzalo
   if (activeMpdStreams.has(streamKey)) {
@@ -1166,6 +1177,8 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
       existing.closeTimer = null;
       console.log(`[MPD ClearKey Proxy] Riattivato stream esistente per "${title}" (timer annullato).`);
     }
+
+    writeMpegTsHeaders(res);
 
     // Invia il burst circolare recente (gli ultimi 512KB-768KB) allineato a 188 byte
     if (existing.recentBytes > 0 && existing.recentChunks.length > 0) {
@@ -1302,6 +1315,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     for (const r of streamState.listeners) {
       try {
         if (!r.writableEnded && !r.destroyed) {
+          writeMpegTsHeaders(r);
           r.write(chunk);
         } else {
           streamState.listeners.delete(r);
@@ -1320,8 +1334,10 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
 
   ffmpegProc.on('error', (err) => {
     console.error(`[MPD ClearKey Proxy] Errore esecuzione FFmpeg: ${err.message}`);
-    if (!res.headersSent) {
-      res.status(500).send(`Errore FFmpeg: ${err.message}. Verifica che ffmpeg sia installato (apk add ffmpeg).`);
+    for (const r of streamState.listeners) {
+      if (!r.headersSent) {
+        r.status(500).send(`Errore FFmpeg: ${err.message}. Verifica che ffmpeg sia installato (apk add ffmpeg).`);
+      }
     }
   });
 
@@ -1332,7 +1348,11 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     if (streamState.closeTimer) clearTimeout(streamState.closeTimer);
     for (const r of streamState.listeners) {
       try {
-        if (!r.writableEnded) r.end();
+        if (!r.headersSent) {
+          r.status(503).send(`Flusso non disponibile o evento concluso (FFmpeg code ${code})`);
+        } else if (!r.writableEnded) {
+          r.end();
+        }
       } catch (e) {}
     }
     activeMpdStreams.delete(streamKey);

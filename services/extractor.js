@@ -672,6 +672,9 @@ class ExtractorEngine {
           promises.push((async () => {
             const resolved = await NativeResolver.resolve(method, param);
             for (const r of resolved) {
+              const chTitle = title || r.title || '';
+              const chUrl = r.url || '';
+              const needsWarp = (chTitle.toUpperCase().includes('WARP') || chUrl.includes('asn%3A13335') || chUrl.includes('asn:13335') || chUrl.includes('13335'));
               this.channels.push({
                 id: `ch_${Buffer.from(title + r.url).toString('base64').substring(0, 16)}`,
                 title,
@@ -682,6 +685,7 @@ class ExtractorEngine {
                 clearkey: r.clearkey || '',
                 headers: r.headers || '',
                 enabled: true,
+                useWarp: needsWarp,
                 source: 'resolver'
               });
             }
@@ -833,6 +837,8 @@ class ExtractorEngine {
         // Verifica se il canale deve usare il proxy Cloudflare WARP (per singolo canale o per gruppo)
         const isWarpActive = !!(cfg && cfg.warpEnabled && (
           ch.useWarp === true ||
+          (title && title.toUpperCase().includes('WARP')) ||
+          (url && (url.includes('asn%3A13335') || url.includes('asn:13335') || url.includes('13335'))) ||
           isGroupInWarp(groupName) ||
           isGroupInWarp(ch.group) ||
           isGroupInWarp(ch.customGroup)
