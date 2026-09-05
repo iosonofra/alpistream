@@ -13,6 +13,13 @@ try {
   console.warn('[WARP Proxy] Modulo socks-proxy-agent non trovato. Esegui npm install sul server.');
 }
 
+const storage = require('./services/storage');
+const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
+const epgManager = require('./services/epg');
+const eventsManager = require('./services/events');
+const scheduler = require('./services/scheduler');
+const HTSportService = require('./services/htsport');
+
 // Persistent HTTP/HTTPS Keep-Alive Agents per abbattere la latenza di handshake sui segmenti video
 const httpKeepAliveAgent = new http.Agent({
   keepAlive: true,
