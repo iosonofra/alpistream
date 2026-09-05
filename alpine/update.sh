@@ -17,9 +17,10 @@ else
 fi
 
 # 1. Scarica l'ultimo aggiornamento da GitHub
-echo "[+] Reset modifiche locali e download aggiornamenti da Git..."
-git checkout -- . 2>/dev/null || true
-git pull
+echo "[+] Download aggiornamenti da Git (allineamento forzato pulito)..."
+git fetch origin main
+git reset --hard origin/main
+chmod +x alpine/*.sh
 
 # 2. Aggiorna dipendenze se necessario
 echo "[+] Controllo dipendenze NPM..."
