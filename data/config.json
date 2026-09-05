@@ -4,6 +4,7 @@
   "adminPassword": "",
   "aceStreamHost": "127.0.0.1:6878",
   "aceStreamProxyEnabled": true,
+  "mpdProxyEnabled": true,
   "cronSchedule": "0 */4 * * *",
   "cronEnabled": true,
   "maxWorkers": 25,

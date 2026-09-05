@@ -216,7 +216,7 @@ async function loadSettings() {
       document.getElementById('setting-acestream-host').value = appConfig.aceStreamHost || '127.0.0.1:6878';
     }
     if (document.getElementById('setting-mpd-proxy')) {
-      document.getElementById('setting-mpd-proxy').checked = appConfig.mpdProxyEnabled === true;
+      document.getElementById('setting-mpd-proxy').checked = appConfig.mpdProxyEnabled !== false;
     }
     if (document.getElementById('setting-warp-enabled')) {
       document.getElementById('setting-warp-enabled').checked = appConfig.warpEnabled === true;

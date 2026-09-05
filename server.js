@@ -363,14 +363,14 @@ app.post('/api/epg/sources', (req, res) => {
 // -------------------------------------------------------------
 // 3. STREAMING PROXY PER WEB PLAYER (CORS & Referer Bypass)
 // -------------------------------------------------------------
-app.options('/api/stream/proxy', (req, res) => {
+app.options(['/api/stream/proxy.m3u8', '/api/stream/proxy'], (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.sendStatus(204);
 });
 
-app.get('/api/stream/proxy', async (req, res) => {
+app.get(['/api/stream/proxy.m3u8', '/api/stream/proxy'], async (req, res) => {
   let { url, referer, origin, ua } = req.query;
   if (!url) return res.status(400).send('Missing stream URL');
 
@@ -522,7 +522,9 @@ app.get('/api/stream/proxy', async (req, res) => {
           if (referer) p.set('referer', referer);
           if (origin) p.set('origin', origin);
           if (ua) p.set('ua', ua);
-          return `${baseUrl}/api/stream/proxy?${p.toString()}`;
+          const isSubM3u8 = absUrl.includes('.m3u8');
+          const proxyEndpoint = isSubM3u8 ? '/api/stream/proxy.m3u8' : '/api/stream/proxy';
+          return `${baseUrl}${proxyEndpoint}?${p.toString()}`;
         });
 
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
@@ -568,7 +570,7 @@ app.get('/api/stream/proxy', async (req, res) => {
 
 // Funzione core di proxying continuo MPEG-TS
 function streamAceEngine(hash, req, res) {
-  const cleanHash = (hash || '').trim();
+  const cleanHash = (hash || '').replace(/\.ts$/i, '').trim();
   if (!/^[a-f0-9]{40}$/i.test(cleanHash)) {
     return res.status(400).send('Hash AceStream non valido (deve contenere 40 caratteri esadecimali).');
   }
@@ -685,8 +687,9 @@ function streamAceEngine(hash, req, res) {
 }
 
 // 1. Endpoint standard REST per client IPTV / Kodi / VLC / Browser
-app.get(['/stream/ace/:hash', '/stream/ace'], verifyToken, (req, res) => {
-  const hash = req.params.hash || req.query.id || req.query.hash;
+app.get(['/stream/ace/:hash.ts', '/stream/ace/:hash', '/stream/ace'], verifyToken, (req, res) => {
+  const rawHash = req.params.hash || req.query.id || req.query.hash;
+  const hash = (rawHash || '').replace(/\.ts$/i, '');
   streamAceEngine(hash, req, res);
 });
 
@@ -1025,11 +1028,15 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   let headersStr = '';
   let title = 'Live Stream';
 
+  const cleanId = (channelIdOrUrl && !channelIdOrUrl.startsWith('http'))
+    ? channelIdOrUrl.replace(/\.ts$/i, '')
+    : channelIdOrUrl;
+
   // 1. Cerca canale per ID nel database se fornito
-  if (channelIdOrUrl && !channelIdOrUrl.startsWith('http')) {
+  if (cleanId && !cleanId.startsWith('http')) {
     const channels = storage.getChannels();
     const custom = storage.getCustomChannels();
-    let ch = [...custom, ...channels].find(c => c.id === channelIdOrUrl);
+    let ch = [...custom, ...channels].find(c => c.id === cleanId || c.id === channelIdOrUrl);
 
     // Controlla anche negli eventi se non trovato nei canali standard
     if (!ch && eventsManager) {
@@ -1037,7 +1044,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
         const evData = eventsManager.getEvents();
         if (evData && Array.isArray(evData.events)) {
           for (const ev of evData.events) {
-            const matched = [...(ev.officialChannels || []), ...(ev.directStreams || [])].find(c => c.id === channelIdOrUrl);
+            const matched = [...(ev.officialChannels || []), ...(ev.directStreams || [])].find(c => c.id === cleanId || c.id === channelIdOrUrl);
             if (matched) {
               ch = matched;
               break;
@@ -1106,7 +1113,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     const channels = storage.getChannels();
     const custom = storage.getCustomChannels();
     const all = [...custom, ...channels];
-    const ch = all.find(c => channelIdOrUrl && (c.id === channelIdOrUrl || c.url === channelIdOrUrl || (c.url && channelIdOrUrl.includes(c.url))));
+    const ch = all.find(c => (cleanId && (c.id === cleanId || c.id === channelIdOrUrl)) || (c.url && (c.url === targetUrl || targetUrl.includes(c.url))));
     if (ch) {
       const rawG = ch.customGroup || ch.group || '';
       const cleanG = sanitizeGroupName(rawG);
@@ -1117,8 +1124,8 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   }
 
   // Chiave identificativa univoca per la sessione stream
-  const baseKey = (channelIdOrUrl && !channelIdOrUrl.startsWith('http'))
-    ? channelIdOrUrl
+  const baseKey = (cleanId && !cleanId.startsWith('http'))
+    ? cleanId
     : `${targetUrl}#${keyHex}`;
   const streamKey = useWarp ? `${baseKey}#warp` : baseKey;
 
@@ -1348,8 +1355,9 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
 }
 
 // 1. Endpoint MPD Proxy per client IPTV / Kodi / VLC / Smart TV
-app.get(['/stream/mpd/:id', '/stream/mpd', '/stream/clearkey/:id', '/stream/clearkey'], (req, res) => {
-  const channelId = req.params.id || req.query.id || req.query.url;
+app.get(['/stream/mpd/:id.ts', '/stream/mpd/:id', '/stream/mpd', '/stream/clearkey/:id.ts', '/stream/clearkey/:id', '/stream/clearkey'], (req, res) => {
+  const rawId = req.params.id || req.query.id || req.query.url;
+  const channelId = rawId ? rawId.replace(/\.ts$/i, '') : '';
   const key = req.query.key || req.query.clearkey;
   const headers = req.query.headers;
   streamMpdClearKey(channelId, key, headers, req, res);
@@ -1400,9 +1408,16 @@ app.get(['/stream/htsport/epiembeds/:slug/playlist.m3u8', '/stream/htsport/epiem
     const resp = await axios.get(directM3u8Url, axiosOpts);
 
     let body = resp.data;
+    const baseUri = directM3u8Url.substring(0, directM3u8Url.lastIndexOf('/') + 1);
     // Riscrive tutti i chunk video verso il proxy locale che rimuove il falso header WebP
-    body = body.replace(/(https?:\/\/[^\r\n]+)/g, (match) => {
-      return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(match)}${useWarp ? '&warp=1' : ''}`;
+    body = body.replace(/^(?!#)(.+)$/gm, (match) => {
+      const line = match.trim();
+      if (!line) return match;
+      const absUrl = (line.startsWith('http://') || line.startsWith('https://')) ? line : `${baseUri}${line}`;
+      if (absUrl.includes('.m3u8')) {
+        return `${baseUrl}/api/stream/proxy.m3u8?url=${encodeURIComponent(absUrl)}${useWarp ? '&warp=1' : ''}&referer=${encodeURIComponent('https://epiembeds.online/')}&origin=${encodeURIComponent('https://epiembeds.online')}`;
+      }
+      return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(absUrl)}${useWarp ? '&warp=1' : ''}`;
     });
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
@@ -1507,7 +1522,12 @@ app.get(['/stream/htsport/tvnow/:id/playlist.m3u8', '/stream/htsport/tvnow/:id']
     if (useWarp) {
       // Se WARP è attivo, passa tutti i segmenti per il proxy locale per aggirare il blocco CDN
       body = body.replace(/^(?!#)(.+)$/gm, (m) => {
-        const absUrl = (m.startsWith('http://') || m.startsWith('https://')) ? m : `${baseUri}${m}`;
+        const line = m.trim();
+        if (!line) return m;
+        const absUrl = (line.startsWith('http://') || line.startsWith('https://')) ? line : `${baseUri}${line}`;
+        if (absUrl.includes('.m3u8')) {
+          return `${baseUrl}/api/stream/proxy.m3u8?url=${encodeURIComponent(absUrl)}&warp=1&referer=${encodeURIComponent('https://tvnow247.top/')}&origin=${encodeURIComponent('https://tvnow247.top')}`;
+        }
         return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(absUrl)}&warp=1`;
       });
     } else if (!body.includes('http://') && !body.includes('https://')) {

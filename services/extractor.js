@@ -804,7 +804,7 @@ class ExtractorEngine {
         let isMpdProxy = false;
         let proxyEnabled = true;
         let aceHost = '127.0.0.1:6878';
-        let mpdProxyEnabled = false;
+        let mpdProxyEnabled = true;
         let cfg = null;
         try {
           cfg = require('./storage').getConfig();
@@ -847,7 +847,7 @@ class ExtractorEngine {
         if (aceHash) {
           isAce = true;
           if (baseUrl && proxyEnabled) {
-            finalUrl = `${baseUrl}/stream/ace/${aceHash}${tokenParam || ''}`;
+            finalUrl = `${baseUrl}/stream/ace/${aceHash}.ts${tokenParam || ''}`;
           } else {
             finalUrl = `http://${aceHost}/ace/getstream?id=${aceHash}`;
           }
@@ -855,13 +855,14 @@ class ExtractorEngine {
           const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
           if (hasClearKey && baseUrl && (mpdProxyEnabled || isWarpActive) && ch.id) {
             isMpdProxy = true;
-            let streamPath = `${baseUrl}/stream/mpd/${ch.id}`;
+            let streamPath = `${baseUrl}/stream/mpd/${ch.id}.ts`;
             if (warpQueryParam) streamPath = appendParam(streamPath, warpQueryParam);
             finalUrl = `${streamPath}${tokenParam ? (streamPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
           } else if (isWarpActive && baseUrl && !url.includes('/stream/htsport/')) {
             // Se WARP è attivo su questo gruppo/canale ma non è MPD con ClearKey né HTSport,
             // instrada il flusso HLS/HTTP tramite il proxy CORS di MandraKodi per farlo passare da WARP
-            let streamPath = `${baseUrl}/api/stream/proxy`;
+            const isM3u8 = url.includes('.m3u8') || (kodiProps && kodiProps['inputstream.adaptive.manifest_type'] === 'hls');
+            let streamPath = isM3u8 ? `${baseUrl}/api/stream/proxy.m3u8` : `${baseUrl}/api/stream/proxy`;
             const qParams = new URLSearchParams({ url, warp: '1' });
             if (headers) qParams.set('headers', headers);
             finalUrl = `${streamPath}?${qParams.toString()}${tokenParam ? '&' + tokenParam.slice(1) : ''}`;

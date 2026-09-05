@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
   adminPassword: '', // Optional password for Web UI
   aceStreamHost: '127.0.0.1:6878', // Host/Port di Ace Stream Engine
   aceStreamProxyEnabled: true, // Riscrittura automatica link AceStream tramite proxy MandraKodi
+  mpdProxyEnabled: true, // Riscrittura automatica canali MPD ClearKey tramite proxy FFmpeg MandraKodi
   cronSchedule: '0 */4 * * *', // Default every 4 hours
   cronEnabled: true,
   maxWorkers: 25,
@@ -146,7 +147,9 @@ module.exports = {
   DATA_DIR,
   getConfig: () => {
     const loaded = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
-    return { ...DEFAULT_CONFIG, ...loaded };
+    const merged = { ...DEFAULT_CONFIG, ...loaded };
+    if (merged.mpdProxyEnabled === undefined) merged.mpdProxyEnabled = true;
+    return merged;
   },
   saveConfig: (cfg) => writeJsonFile(CONFIG_FILE, { ...DEFAULT_CONFIG, ...cfg }),
   getChannels: () => readJsonFile(CHANNELS_FILE, []),
