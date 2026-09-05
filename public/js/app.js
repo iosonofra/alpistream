@@ -1,6 +1,7 @@
 // App State
 let currentTab = 'dashboard';
 let appConfig = {};
+window.appConfig = appConfig;
 
 // Toast
 function showToast(msg) {
@@ -200,6 +201,7 @@ async function loadSettings() {
   try {
     const res = await fetch('/api/config');
     appConfig = await res.json();
+    window.appConfig = appConfig;
 
     if (appConfig.cronSchedule) {
       document.getElementById('setting-cron').value = appConfig.cronSchedule;

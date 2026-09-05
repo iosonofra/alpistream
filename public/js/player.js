@@ -14,9 +14,15 @@ if (window.shaka) {
 }
 
 function parseHeaders(headersStr, rawUrl) {
-  let referer = 'https://www.nowtv.it/';
-  let origin = 'https://www.nowtv.it';
+  let referer = '';
+  let origin = '';
   let ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+  // Solo se lo stream è Sky o NowTV impostiamo il referer NowTV di default se non specificato
+  if (rawUrl && (rawUrl.includes('sky') || rawUrl.includes('nowtv') || rawUrl.includes('ott') || rawUrl.includes('skysports'))) {
+    referer = 'https://www.nowtv.it/';
+    origin = 'https://www.nowtv.it';
+  }
 
   if (rawUrl && rawUrl.includes('|')) {
     const parts = rawUrl.split('|');
@@ -28,6 +34,10 @@ function parseHeaders(headersStr, rawUrl) {
     if (headersStr.includes('Referer=')) {
       const m = headersStr.match(/Referer=([^&]+)/i);
       if (m) referer = decodeURIComponent(m[1]);
+    }
+    if (headersStr.includes('Origin=')) {
+      const m = headersStr.match(/Origin=([^&]+)/i);
+      if (m) origin = decodeURIComponent(m[1]);
     }
     if (headersStr.includes('User-Agent=')) {
       const m = headersStr.match(/User-Agent=([^&]+)/i);
@@ -72,10 +82,14 @@ function buildProxyUrl(rawUrl, headersObj, useWarp = false) {
 
   const params = new URLSearchParams({
     url: cleanUrl,
-    referer: headersObj.referer || 'https://www.nowtv.it/',
-    origin: headersObj.origin || 'https://www.nowtv.it',
     ua: headersObj.ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   });
+  if (headersObj.referer) {
+    params.set('referer', headersObj.referer);
+  }
+  if (headersObj.origin) {
+    params.set('origin', headersObj.origin);
+  }
   if (useWarp) {
     params.set('warp', '1');
   }
@@ -105,7 +119,11 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
   const isGroupInWarp = (g) => {
     if (!g || !Array.isArray(cfg.warpGroups)) return false;
     const lower = g.trim().toLowerCase();
-    return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+    return cfg.warpGroups.some(wg => {
+      if (!wg) return false;
+      const wgl = wg.trim().toLowerCase();
+      return wgl === lower || lower.includes(wgl) || wgl.includes(lower);
+    });
   };
   const useWarp = !!(cfg.warpEnabled && (ch.useWarp === true || isGroupInWarp(ch.group) || isGroupInWarp(ch.customGroup)));
 
@@ -130,8 +148,9 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
       playerInstance = null;
     }
 
-    const aceStreamUrl = `/stream/ace/${aceHash}`;
-    const aceHlsUrl = `/stream/ace/${aceHash}/manifest.m3u8`;
+    const aceStreamPath = `/stream/ace/${aceHash}`;
+    const aceStreamUrl = new URL(aceStreamPath, window.location.origin).href;
+    const aceHlsUrl = new URL(`/stream/ace/${aceHash}/manifest.m3u8`, window.location.origin).href;
 
     // A. Tentativo con mpegts.js (MPEG-TS live nativo tramite MSE)
     if (window.mpegts && mpegts.isSupported()) {
@@ -141,11 +160,12 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           isLive: true,
           url: aceStreamUrl
         }, {
-          enableWorker: true,
+          enableWorker: false,
           lazyLoadMaxDuration: 3 * 60,
           seekType: 'range',
           liveBufferLatencyChasing: true
         });
+        mpegPlayer.on(mpegts.Events.ERROR, (t, d, i) => console.warn('[AceStream mpegts Error]', t, d, i));
         mpegPlayer.attachMediaElement(videoEl);
         mpegPlayer.load();
         mpegPlayer.play().catch(() => {});
@@ -189,21 +209,35 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
     if ((cleanUrl.includes('.mpd') || hasClearKey) && window.mpegts && mpegts.isSupported()) {
       try {
-        const mpdProxyUrl = (ch.id && !ch.id.startsWith('http'))
-          ? `/stream/mpd/${ch.id}${useWarp ? '?warp=1' : ''}`
-          : `/stream/mpd?url=${encodeURIComponent(cleanUrl)}&key=${encodeURIComponent(clearkey)}${ch.headers ? '&headers=' + encodeURIComponent(ch.headers) : ''}${useWarp ? '&warp=1' : ''}`;
+        const params = new URLSearchParams();
+        if (cleanUrl) params.set('url', cleanUrl);
+        if (clearkey) params.set('key', clearkey);
+        if (ch.headers) params.set('headers', ch.headers);
+        if (ch.id) params.set('id', ch.id);
+        if (useWarp) params.set('warp', '1');
 
-        console.log('[Player] Avvio fallback FFmpeg MPD ClearKey via mpegts.js:', mpdProxyUrl);
+        const mpdPath = (ch.id && !ch.id.startsWith('http'))
+          ? `/stream/mpd/${encodeURIComponent(ch.id)}?${params.toString()}`
+          : `/stream/mpd?${params.toString()}`;
+
+        const absoluteMpdUrl = new URL(mpdPath, window.location.origin).href;
+
+        console.log('[Player] Avvio fallback FFmpeg MPD ClearKey via mpegts.js:', absoluteMpdUrl);
         const mpegPlayer = mpegts.createPlayer({
           type: 'mse',
           isLive: true,
-          url: mpdProxyUrl
+          url: absoluteMpdUrl
         }, {
-          enableWorker: true,
+          enableWorker: false,
           lazyLoadMaxDuration: 3 * 60,
           seekType: 'range',
           liveBufferLatencyChasing: true
         });
+
+        mpegPlayer.on(mpegts.Events.ERROR, (errType, errDetail, errInfo) => {
+          console.warn('[Fallback mpegts.js Error]', errType, errDetail, errInfo);
+        });
+
         mpegPlayer.attachMediaElement(videoEl);
         mpegPlayer.load();
         mpegPlayer.play().catch(() => {});

@@ -367,7 +367,11 @@ app.get('/api/stream/proxy', async (req, res) => {
     const isGroupInWarp = (g) => {
       if (!g) return false;
       const lower = g.trim().toLowerCase();
-      return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+      return cfg.warpGroups.some(wg => {
+        if (!wg) return false;
+        const wgl = wg.trim().toLowerCase();
+        return wgl === lower || lower.includes(wgl) || wgl.includes(lower);
+      });
     };
     const channels = storage.getChannels();
     const custom = storage.getCustomChannels();
@@ -976,8 +980,24 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   if (channelIdOrUrl && !channelIdOrUrl.startsWith('http')) {
     const channels = storage.getChannels();
     const custom = storage.getCustomChannels();
-    const all = [...custom, ...channels];
-    const ch = all.find(c => c.id === channelIdOrUrl);
+    let ch = [...custom, ...channels].find(c => c.id === channelIdOrUrl);
+
+    // Controlla anche negli eventi se non trovato nei canali standard
+    if (!ch && eventsManager) {
+      try {
+        const evData = eventsManager.getEvents();
+        if (evData && Array.isArray(evData.events)) {
+          for (const ev of evData.events) {
+            const matched = [...(ev.officialChannels || []), ...(ev.directStreams || [])].find(c => c.id === channelIdOrUrl);
+            if (matched) {
+              ch = matched;
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     if (ch) {
       targetUrl = ch.url;
       clearkey = ch.clearkey || (ch.kodi_props ? ch.kodi_props['inputstream.adaptive.license_key'] : '');
@@ -1028,7 +1048,11 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     const isGroupInWarp = (g) => {
       if (!g) return false;
       const lower = g.trim().toLowerCase();
-      return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+      return cfg.warpGroups.some(wg => {
+        if (!wg) return false;
+        const wgl = wg.trim().toLowerCase();
+        return wgl === lower || lower.includes(wgl) || wgl.includes(lower);
+      });
     };
     const channels = storage.getChannels();
     const custom = storage.getCustomChannels();
@@ -1145,9 +1169,9 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     '-cenc_decryption_key', keyHex,
     '-i', internalMpdUrl,
 
-    // Mappatura esplicita sul primo flusso video e audio
-    '-map', '0:v:0',
-    '-map', '0:a:0',
+    // Mappatura flessibile sul primo flusso video e audio (? evita crash se manca uno dei due)
+    '-map', '0:v:0?',
+    '-map', '0:a:0?',
 
     // Video: stream copy con iniezione SPS/PPS su ogni keyframe (elimina macroblock/glitch)
     '-c:v', 'copy',
