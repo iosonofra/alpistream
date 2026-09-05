@@ -430,6 +430,7 @@ function streamAceEngine(hash, req, res) {
       port: port,
       path: requestPath,
       method: 'GET',
+      insecureHTTPParser: true,
       headers: {
         'User-Agent': 'MandraKodi-AceStreamProxy/2.0',
         'Accept': '*/*'
@@ -572,6 +573,7 @@ app.all('/ace/*', (req, res) => {
     port: port,
     path: targetPath,
     method: req.method,
+    insecureHTTPParser: true,
     headers: {
       ...req.headers,
       host: aceHost
