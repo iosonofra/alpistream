@@ -15,3 +15,5 @@ data/custom_channels.json
 data/events.json
 data/epg.xml
 data/epg.xml.gz
+scratch/
+

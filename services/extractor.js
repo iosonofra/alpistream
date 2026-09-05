@@ -128,6 +128,13 @@ const CATALOG_SECTIONS = [
     desc: "Canali Daddy Live TV (700+ canali con risoluzione automatica)",
     url: "https://test34344.herokuapp.com/filter.php?numTest=A1A124A",
     group: "CANALI - Lista 8 (Daddy)"
+  },
+  {
+    id: "16",
+    name: "HTSport Live",
+    desc: "Canali sportivi live da HTSport (DAZN 1 HD 1080p, Sky Sport Uno, Calcio, F1, MotoGP, Max, Tennis, Eurosport)",
+    url: "https://www.htsport.org/",
+    group: "SPORT - HTSport"
   }
 ];
 
@@ -701,7 +708,12 @@ class ExtractorEngine {
     await Promise.all(sources.map(async (sec) => {
       this.log(`[+] Scansione sezione: ${sec.name}`);
       try {
-        if (sec.url.endsWith('.m3u') || sec.url.endsWith('.m3u8')) {
+        if (sec.url && sec.url.includes('htsport.org')) {
+          const HTSportService = require('./htsport');
+          const htsportChannels = await HTSportService.scrapeChannels();
+          this.channels.push(...htsportChannels);
+          this.log(`  -> [${sec.name}] Estratti ${htsportChannels.length} canali live HTSport`);
+        } else if (sec.url.endsWith('.m3u') || sec.url.endsWith('.m3u8')) {
           const res = await apiClient.get(sec.url, { timeout: 10000 });
           if (res.data && typeof res.data === 'string') {
             const parsed = this.parseM3U(res.data, sec.group);
@@ -822,6 +834,14 @@ class ExtractorEngine {
           if (hasClearKey && baseUrl && mpdProxyEnabled && ch.id) {
             isMpdProxy = true;
             finalUrl = `${baseUrl}/stream/mpd/${ch.id}${tokenParam || ''}`;
+          }
+        }
+
+        // Riscrittura canali HTSport con il baseUrl e token correnti
+        if (url.startsWith('/stream/htsport/') || url.includes('/stream/htsport/')) {
+          if (baseUrl) {
+            const relPath = url.includes('/stream/htsport/') ? '/stream/htsport/' + url.split('/stream/htsport/')[1] : url;
+            finalUrl = `${baseUrl}${relPath}${tokenParam ? (relPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
           }
         }
 

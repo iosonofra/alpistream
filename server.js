@@ -10,6 +10,7 @@ const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./serv
 const epgManager = require('./services/epg');
 const eventsManager = require('./services/events');
 const scheduler = require('./services/scheduler');
+const HTSportService = require('./services/htsport');
 
 const app = express();
 app.set('trust proxy', true);
@@ -1009,6 +1010,128 @@ app.get(['/stream/mpd/:id', '/stream/mpd', '/stream/clearkey/:id', '/stream/clea
   const key = req.query.key || req.query.clearkey;
   const headers = req.query.headers;
   streamMpdClearKey(channelId, key, headers, req, res);
+});
+
+// -------------------------------------------------------------
+// 3d. PROXY STREAMING HTSPORT (EpiEmbeds WebP Stripper & TVNow)
+// -------------------------------------------------------------
+
+// 1. Endpoint M3U8 per canali EpiEmbeds (DAZN 1 HD, ecc.)
+app.get(['/stream/htsport/epiembeds/:slug/playlist.m3u8', '/stream/htsport/epiembeds/:slug'], verifyToken, async (req, res) => {
+  const slug = req.params.slug;
+  if (!slug) return res.status(400).send('Parametro slug mancante.');
+
+  try {
+    const directM3u8Url = await HTSportService.resolveEpiEmbeds(slug);
+    const host = req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const baseUrl = `${protocol}://${host}`;
+
+    const resp = await axios.get(directM3u8Url, {
+      headers: {
+        'Referer': 'https://epiembeds.online/',
+        'Origin': 'https://epiembeds.online',
+        'User-Agent': 'Mozilla/5.0'
+      },
+      timeout: 8000
+    });
+
+    let body = resp.data;
+    // Riscrive tutti i chunk video verso il proxy locale che rimuove il falso header WebP
+    body = body.replace(/(https?:\/\/[^\r\n]+)/g, (match) => {
+      return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(match)}`;
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(body);
+  } catch (err) {
+    console.error(`[HTSport Proxy] Errore risoluzione/fetch manifest per slug ${slug}: ${err.message}`);
+    if (!res.headersSent) res.status(502).send(`Errore HTSport EpiEmbeds: ${err.message}`);
+  }
+});
+
+// 2. Endpoint Segmenti TS per EpiEmbeds (Rimuove il falso header WebP da TikTok CDN)
+app.get('/stream/htsport/segment', async (req, res) => {
+  const segUrl = req.query.url;
+  if (!segUrl) return res.status(400).send('Parametro URL mancante.');
+
+  try {
+    const resp = await axios.get(segUrl, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0'
+      }
+    });
+
+    const raw = Buffer.from(resp.data);
+    // Cerca il sync byte MPEG-TS 0x47 nei primi 500 byte per eliminare i 42 byte di intestazione RIFF/WEBP
+    let offset = 0;
+    while (offset < 500 && raw[offset] !== 0x47) {
+      offset++;
+    }
+
+    const cleanTs = (offset < 500) ? raw.subarray(offset) : raw;
+    res.writeHead(200, {
+      'Content-Type': 'video/mp2t',
+      'Content-Length': cleanTs.length,
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=60'
+    });
+    res.end(cleanTs);
+  } catch (err) {
+    console.error(`[HTSport Proxy] Errore recupero segmento: ${err.message}`);
+    if (!res.headersSent) res.status(502).send(`Errore segmento HTSport: ${err.message}`);
+  }
+});
+
+// 3. Endpoint M3U8 per canali TVNow (Sky Sport Uno, Calcio, F1, MotoGP, Max, ecc.)
+app.get(['/stream/htsport/tvnow/:id/playlist.m3u8', '/stream/htsport/tvnow/:id'], verifyToken, async (req, res) => {
+  const channelId = req.params.id;
+  if (!channelId) return res.status(400).send('Parametro channelId mancante.');
+
+  try {
+    const directM3u8Url = await HTSportService.resolveTvNow(channelId);
+    const resp = await axios.get(directM3u8Url, {
+      headers: {
+        'Referer': 'https://tvnow247.top/',
+        'Origin': 'https://tvnow247.top',
+        'User-Agent': 'Mozilla/5.0'
+      },
+      timeout: 8000
+    });
+
+    let body = resp.data;
+    if (!body.includes('http://') && !body.includes('https://')) {
+      const baseUri = directM3u8Url.substring(0, directM3u8Url.lastIndexOf('/') + 1);
+      body = body.replace(/^(?!#)([\w.-]+\.(?:m3u8|ts|m4s|pdf|zst)(?:\?[^\r\n]*)?)$/gm, `${baseUri}$1`);
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(body);
+  } catch (err) {
+    console.error(`[HTSport Proxy] Errore risoluzione/fetch TVNow per ID ${channelId}: ${err.message}`);
+    if (!res.headersSent) res.status(502).send(`Errore HTSport TVNow: ${err.message}`);
+  }
+});
+
+// 4. API per interrogare direttamente i canali HTSport disponibili
+app.get('/api/htsport/channels', async (req, res) => {
+  try {
+    const host = req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const baseUrl = `${protocol}://${host}`;
+    const cfg = storage.getConfig();
+    const tokenParam = cfg.authToken ? `?token=${encodeURIComponent(cfg.authToken)}` : '';
+    const channels = await HTSportService.scrapeChannels(baseUrl, tokenParam);
+    res.json({ success: true, count: channels.length, channels });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // 2. Endpoint Diagnostica FFmpeg
