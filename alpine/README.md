@@ -12,51 +12,44 @@ Questa guida illustra come installare e far girare **MandraKodi Web Manager** co
 
 ---
 
-## 📥 Metodo 1: Installazione Diretta con lo Script
+## 📥 Installazione Iniziale via Git (Consigliata)
 
-1. **Accedi alla console del container Alpine LXC** su Proxmox.
-2. **Crea la directory e copia i file del progetto**:
+1. **Accedi alla console o SSH del container Alpine LXC** su Proxmox.
+2. **Installa Git e clona il repository in `/opt/mandrakodi`**:
    ```sh
-   mkdir -p /opt/mandrakodi
-   ```
-   *(Puoi trasferire la cartella `web-app` tramite SCP, SFTP o Git)*.
-
-3. **Esegui lo script di installazione**:
-   ```sh
+   apk update
+   apk add --no-cache git
+   git clone https://github.com/TUO_USERNAME/NOME_REPO.git /opt/mandrakodi
    cd /opt/mandrakodi
-   chmod +x alpine/install.sh
+   ```
+3. **Esegui lo script di configurazione automatica**:
+   ```sh
+   chmod +x alpine/*.sh
    ./alpine/install.sh
    ```
+   *Lo script installerà Node.js, npm, curl, tzdata, le dipendenze npm di produzione, configurerà il servizio OpenRC `/etc/init.d/mandrakodi` e ti chiederà se desideri avviare anche Ace Stream Engine in automatico.*
 
 ---
 
-## 🛠️ Metodo 2: Installazione Manuale Passo-Passo
+## 🔄 Aggiornamento Pulito con 1 Singolo Comando (Git Pull)
 
-Se preferisci eseguire i passaggi a mano:
+Ogni volta che rilasci una nuova versione o modifichi il codice su GitHub, puoi aggiornare il container istantaneamente senza dover trasferire file zip:
 
-1. **Installa Node.js e le utility**:
-   ```sh
-   apk update
-   apk add nodejs npm curl tzdata
-   ```
+```sh
+cd /opt/mandrakodi
+./alpine/update.sh
+```
 
-2. **Posizionati nella cartella e installa le dipendenze**:
-   ```sh
-   cd /opt/mandrakodi
-   npm install --production --no-audit
-   ```
+Oppure manualmente:
+```sh
+cd /opt/mandrakodi
+git pull
+npm install --production --no-audit
+rc-service mandrakodi restart
+```
 
-3. **Configura il servizio OpenRC**:
-   ```sh
-   cp alpine/mandrakodi.initd /etc/init.d/mandrakodi
-   chmod +x /etc/init.d/mandrakodi
-   ```
-
-4. **Avvia e abilita il servizio all'avvio del sistema**:
-   ```sh
-   rc-update add mandrakodi default
-   rc-service mandrakodi start
-   ```
+> [!NOTE]
+> Le impostazioni salvate (`config.json`), i canali personalizzati (`custom_channels.json`) e le preferenze dei gruppi **vengono preservate al 100%** e non andranno mai in conflitto con `git pull`.
 
 ---
 
