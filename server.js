@@ -7,6 +7,15 @@ const https = require('https');
 const net = require('net');
 const { spawn, exec } = require('child_process');
 const crypto = require('crypto');
+
+// Gestione globale eccezioni per prevenire crash del server su disconnessione client / socket EPIPE
+process.on('uncaughtException', (err) => {
+  console.error('[Process Exception]', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process Rejection]', reason);
+});
+
 let SocksProxyAgent;
 try {
   SocksProxyAgent = require('socks-proxy-agent').SocksProxyAgent;
@@ -1019,19 +1028,28 @@ function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
 
 // Endpoint proxy segmenti DASH (.dash / .m4s / init segment)
 app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
-  const sessionId = req.params.sessionId;
-  const filename = req.params[0];
-  const session = dashSegmentSessions.get(sessionId);
-
-  if (!session) {
-    return res.status(404).send('Sessione DASH non trovata o scaduta');
-  }
-  session.lastAccess = Date.now();
-
-  const cdnBase = session.cdnBaseUrl || session.targetUrl.substring(0, session.targetUrl.lastIndexOf('/') + 1);
-  const targetSegmentUrl = new URL(filename, cdnBase).href;
-
   try {
+    const sessionId = req.params.sessionId;
+    const filename = req.params[0];
+    const session = dashSegmentSessions.get(sessionId);
+
+    if (!session) {
+      return res.status(404).send('Sessione DASH non trovata o scaduta');
+    }
+    session.lastAccess = Date.now();
+
+    const cdnBase = session.cdnBaseUrl || (session.targetUrl ? session.targetUrl.substring(0, session.targetUrl.lastIndexOf('/') + 1) : '');
+    if (!cdnBase) {
+      return res.status(400).send('CDN Base URL mancante');
+    }
+
+    let targetSegmentUrl;
+    try {
+      targetSegmentUrl = new URL(filename, cdnBase).href;
+    } catch (e) {
+      return res.status(400).send(`URL segmento non valido: ${e.message}`);
+    }
+
     const axiosOpts = {
       responseType: 'arraybuffer',
       timeout: 15000,
@@ -1049,16 +1067,20 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
     }
 
     const response = await axios.get(targetSegmentUrl, axiosOpts);
-    res.writeHead(200, {
-      'Content-Type': response.headers['content-type'] || 'video/mp4',
-      'Content-Length': response.data.length,
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, max-age=60'
-    });
-    res.end(response.data);
+    if (!res.headersSent && !res.writableEnded) {
+      res.writeHead(200, {
+        'Content-Type': response.headers['content-type'] || 'video/mp4',
+        'Content-Length': response.data.length,
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=60'
+      });
+      res.end(response.data);
+    }
   } catch (err) {
-    console.error(`[DASH Segment Proxy] Errore fetch ${filename}: ${err.message}`);
-    if (!res.headersSent) res.status(502).send(err.message);
+    console.error(`[DASH Segment Proxy] Errore fetch: ${err.message}`);
+    if (!res.headersSent && !res.writableEnded) {
+      res.status(502).send(err.message);
+    }
   }
 });
 
@@ -1253,19 +1275,25 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     }
   }
 
+  req.on('error', () => {});
+  res.on('error', () => {});
+
   const writeMpegTsHeaders = (r) => {
-    if (!r.headersSent) {
-      r.writeHead(200, {
-        'Content-Type': 'video/mp2t',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': '*',
-        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no'
-      });
+    if (!r.headersSent && !r.writableEnded) {
+      r.on('error', () => {}); // Previene crash unhandled 'error' (EPIPE)
+      try {
+        r.writeHead(200, {
+          'Content-Type': 'video/mp2t',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no'
+        });
+      } catch (e) {}
     }
   };
 
