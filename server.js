@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const compression = require('compression');
 const path = require('path');
 const http = require('http');
@@ -662,6 +663,77 @@ app.get('/api/acestream/status', (req, res) => {
 // 3c. PROXY HTTP CENTRALIZZATO MPD CLEARKEY (FFmpeg Stream Copy)
 // -------------------------------------------------------------
 
+// Funzione di ottimizzazione del manifest MPD per eliminare micro-buffering, stuttering e A/V desync
+function cleanAndBufferMpd(manifest, targetUrl) {
+  let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
+
+  // 1. Inietta BaseURL assoluto se assente, così FFmpeg scarica i segmenti (.m4s) direttamente dalla CDN al massimo della banda
+  if (!cleaned.includes('<BaseURL>') && !cleaned.includes('<BaseURL ')) {
+    const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+    cleaned = cleaned.replace(/<Period\b/i, `<BaseURL>${baseUrl}</BaseURL>\n  <Period`);
+  }
+
+  // 2. In ogni AdaptationSet video, mantieni solo la prima Representation (1080p massima qualità)
+  // per eliminare tentativi di ABR/downgrade di FFmpeg e conflitti tra rappresentazioni multiple
+  cleaned = cleaned.replace(/<AdaptationSet\b([^>]*contentType="video"[^>]*)>([\s\S]*?)<\/AdaptationSet>/gi, (match, attrs, content) => {
+    const reps = content.match(/<Representation[\s\S]*?<\/Representation>/g) || [];
+    if (reps.length > 1) {
+      const firstRep = reps[0];
+      const withoutReps = content.replace(/<Representation[\s\S]*?<\/Representation>/g, '');
+      return `<AdaptationSet ${attrs}>${withoutReps}\n      ${firstRep}\n    </AdaptationSet>`;
+    }
+    return match;
+  });
+
+  // 3. Tieni solo il primo AdaptationSet audio per evitare conflitti o salti temporali tra tracce multiple
+  let audioSetCount = 0;
+  cleaned = cleaned.replace(/<AdaptationSet\b([^>]*contentType="audio"[^>]*)>([\s\S]*?)<\/AdaptationSet>/gi, (match) => {
+    audioSetCount++;
+    if (audioSetCount > 1) return '';
+    return match;
+  });
+
+  // 4. Trimming di sicurezza del SegmentTimeline (5 segmenti di margine = ~18-20s di live buffer)
+  // Garantisce che ogni segmento richiesto da FFmpeg sia già stato interamente caricato sulla CDN
+  cleaned = cleaned.replace(/<SegmentTimeline>([\s\S]*?)<\/SegmentTimeline>/gi, (m) => {
+    const sTags = m.match(/<S\b[^>]*\/?>/g) || [];
+    if (sTags.length <= 5) return m;
+    const keep = sTags.slice(0, sTags.length - 5);
+    return "<SegmentTimeline>\n              " + keep.join("\n              ") + "\n            </SegmentTimeline>";
+  });
+
+  return cleaned;
+}
+
+// Endpoint interno proxy manifest MPD con live buffer e selezione traccia
+app.get('/internal/mpd', async (req, res) => {
+  const targetUrl = req.query.url;
+  const headersStr = req.query.headers;
+  if (!targetUrl) return res.status(400).send('URL mancante');
+
+  try {
+    const reqHeaders = {};
+    if (headersStr) {
+      const pairs = headersStr.split('&');
+      for (const p of pairs) {
+        const [k, ...v] = p.split('=');
+        if (k && v.length) reqHeaders[k.trim()] = v.join('=').trim();
+      }
+    }
+    const response = await axios.get(targetUrl, {
+      headers: reqHeaders,
+      timeout: 10000,
+      responseType: 'text'
+    });
+    const processed = cleanAndBufferMpd(response.data, targetUrl);
+    res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(processed);
+  } catch (e) {
+    res.status(502).send(`Errore fetch MPD: ${e.message}`);
+  }
+});
+
 // Mappa delle sessioni proxy MPD attive condivise (Anti-Buffering & Multi-Client)
 const activeMpdStreams = new Map();
 
@@ -794,6 +866,9 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     return;
   }
 
+  // Costruisci URL dell'endpoint interno MPD bufferizzato
+  const internalMpdUrl = `http://127.0.0.1:${PORT}/internal/mpd?url=${encodeURIComponent(targetUrl)}${headersStr ? `&headers=${encodeURIComponent(headersStr)}` : ''}`;
+
   // Avvio nuovo processo FFmpeg con parametri anti-buffering e stabilizzazione A/V
   console.log(`[MPD ClearKey Proxy] Avvio nuovo processo FFmpeg per "${title}" (Key: ${keyHex.substring(0, 8)}...)...`);
 
@@ -807,6 +882,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     '-reconnect_delay_max', '2',
     '-rw_timeout', '15000000',
     '-tcp_nodelay', '1',
+    '-fflags', '+genpts',
   ];
 
   if (formattedHeaders) {
@@ -815,7 +891,11 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
 
   ffmpegArgs.push(
     '-cenc_decryption_key', keyHex,
-    '-i', targetUrl,
+    '-i', internalMpdUrl,
+
+    // Mappatura esplicita sul primo flusso video e audio
+    '-map', '0:v:0',
+    '-map', '0:a:0',
 
     // Video: stream copy con iniezione SPS/PPS su ogni keyframe (elimina macroblock/glitch)
     '-c:v', 'copy',
