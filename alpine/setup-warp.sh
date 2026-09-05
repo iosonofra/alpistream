@@ -142,7 +142,11 @@ if [ -d "$INSTALL_DIR" ]; then
     fi
 fi
 
+echo "[+] Avvio/Riavvio del servizio mandrakodi..."
+rc-service mandrakodi zap 2>/dev/null || true
 if rc-service mandrakodi status >/dev/null 2>&1; then
-    echo "[+] Riavvio del servizio mandrakodi in corso..."
     rc-service mandrakodi restart
+else
+    rc-service mandrakodi start
 fi
+

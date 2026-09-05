@@ -28,6 +28,7 @@ npm install --production --no-audit
 
 # 3. Riavvia il servizio OpenRC
 echo "[+] Riavvio del servizio mandrakodi in corso..."
+rc-service mandrakodi zap 2>/dev/null || true
 if rc-service mandrakodi status >/dev/null 2>&1; then
     rc-service mandrakodi restart
 else

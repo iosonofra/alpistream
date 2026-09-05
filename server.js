@@ -12,6 +12,13 @@ try {
   console.warn('[WARP Proxy] Modulo socks-proxy-agent non trovato. Esegui npm install sul server.');
 }
 
+const storage = require('./services/storage');
+const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
+const epgManager = require('./services/epg');
+const eventsManager = require('./services/events');
+const scheduler = require('./services/scheduler');
+const HTSportService = require('./services/htsport');
+
 // Helper per ottenere l'agente proxy Cloudflare WARP SOCKS5
 function getWarpAgent() {
   if (!SocksProxyAgent) return null;
