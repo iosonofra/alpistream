@@ -1,0 +1,21 @@
+services:
+  mandrakodi-web:
+    build: .
+    container_name: mandrakodi-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3000
+    depends_on:
+      - acestream-engine
+
+  acestream-engine:
+    image: magnetikonline/acestream-server:latest
+    container_name: acestream-engine
+    restart: unless-stopped
+    ports:
+      - "6878:6878"
+      - "6878:6878/udp"

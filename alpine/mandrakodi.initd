@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+# OpenRC service script per MandraKodi Web Manager su Alpine Linux
+
+name="mandrakodi"
+description="MandraKodi Web Manager & IPTV Hub"
+
+command="/usr/bin/node"
+command_args="server.js"
+command_background="yes"
+directory="/opt/mandrakodi"
+pidfile="/run/mandrakodi.pid"
+output_log="/var/log/mandrakodi.log"
+error_log="/var/log/mandrakodi.err"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath -f -m 0644 -o root:root "$output_log" "$error_log"
+}
