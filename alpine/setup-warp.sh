@@ -140,11 +140,11 @@ if [ -d "$INSTALL_DIR" ]; then
     fi
 fi
 
-echo "[+] Avvio/Riavvio del servizio mandrakodi..."
+echo "[+] Riavvio del servizio mandrakodi..."
+rc-service mandrakodi stop 2>/dev/null || true
+killall node 2>/dev/null || true
+sleep 1
 rc-service mandrakodi zap 2>/dev/null || true
-if rc-service mandrakodi status >/dev/null 2>&1; then
-    rc-service mandrakodi restart
-else
-    rc-service mandrakodi start
-fi
+rc-service mandrakodi start
+
 
