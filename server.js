@@ -934,6 +934,30 @@ function getBestVideoRepresentation(reps) {
   return bestRep;
 }
 
+// Risolutore robusto di URL per segmenti DASH relativi / assoluti
+function resolveSegmentUrl(filename, cdnBase, targetUrl) {
+  if (!filename) return '';
+  if (filename.startsWith('http://') || filename.startsWith('https://')) {
+    return filename;
+  }
+  let absoluteBase = '';
+  if (cdnBase) {
+    try {
+      absoluteBase = new URL(cdnBase, targetUrl).href;
+    } catch (e) {
+      absoluteBase = '';
+    }
+  }
+  if (!absoluteBase && targetUrl) {
+    try {
+      absoluteBase = new URL('./', targetUrl).href;
+    } catch (e) {
+      absoluteBase = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+    }
+  }
+  return new URL(filename, absoluteBase).href;
+}
+
 // Gestione sessioni segmenti DASH proxy (per canali WARP e bypass restrizioni CDN)
 const dashSegmentSessions = new Map();
 
@@ -957,21 +981,34 @@ function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
     if (session) {
       // Estrai il BaseURL effettivo della CDN dal manifest originale
       const periodMatches = [...cleaned.matchAll(/<BaseURL>([^<]+)<\/BaseURL>/gi)];
+      let rawBase = '';
       if (periodMatches.length > 1) {
-        // Se ci sono più BaseURL (es. uno in MPD e uno in Period tipo DAZN '.../web/dash/'), prendi l'ultimo per i segmenti
-        session.cdnBaseUrl = periodMatches[periodMatches.length - 1][1].trim();
+        rawBase = periodMatches[periodMatches.length - 1][1].trim();
       } else if (periodMatches.length === 1) {
-        session.cdnBaseUrl = periodMatches[0][1].trim();
+        rawBase = periodMatches[0][1].trim();
+      }
+
+      if (rawBase) {
+        try {
+          session.cdnBaseUrl = new URL(rawBase, targetUrl).href;
+        } catch (e) {
+          session.cdnBaseUrl = rawBase;
+        }
       } else {
-        session.cdnBaseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+        try {
+          session.cdnBaseUrl = new URL('./', targetUrl).href;
+        } catch (e) {
+          session.cdnBaseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+        }
       }
 
       // Rimuovi tutti i vecchi tag BaseURL
       cleaned = cleaned.replace(/<BaseURL>[^<]+<\/BaseURL>/gi, '');
 
-      // Inietta il nuovo BaseURL puntato al proxy locale
+      // Inietta il nuovo BaseURL puntato al proxy locale sia a livello MPD che Period
       const localBaseUrl = `http://127.0.0.1:${port || PORT}/internal/dash-seg/${sessionId}/`;
-      cleaned = cleaned.replace(/<Period\b([^>]*)>/i, `<Period$1>\n    <BaseURL>${localBaseUrl}</BaseURL>`);
+      cleaned = cleaned.replace(/<Period\b([^>]*)>/gi, `<Period$1>\n    <BaseURL>${localBaseUrl}</BaseURL>`);
+      cleaned = cleaned.replace(/<MPD\b([^>]*)>/i, `<MPD$1>\n  <BaseURL>${localBaseUrl}</BaseURL>`);
     }
   } else {
     // Comportamento standard per non-WARP: inietta BaseURL assoluto se assente
@@ -1028,6 +1065,8 @@ function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
 
 // Endpoint proxy segmenti DASH (.dash / .m4s / init segment)
 app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
+  res.on('error', () => {});
+  req.on('error', () => {});
   try {
     const sessionId = req.params.sessionId;
     const filename = req.params[0];
@@ -1038,15 +1077,11 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
     }
     session.lastAccess = Date.now();
 
-    const cdnBase = session.cdnBaseUrl || (session.targetUrl ? session.targetUrl.substring(0, session.targetUrl.lastIndexOf('/') + 1) : '');
-    if (!cdnBase) {
-      return res.status(400).send('CDN Base URL mancante');
-    }
-
     let targetSegmentUrl;
     try {
-      targetSegmentUrl = new URL(filename, cdnBase).href;
+      targetSegmentUrl = resolveSegmentUrl(filename, session.cdnBaseUrl, session.targetUrl);
     } catch (e) {
+      console.error(`[DASH Segment Proxy] Errore risoluzione URL segmento "${filename}": ${e.message}`);
       return res.status(400).send(`URL segmento non valido: ${e.message}`);
     }
 
@@ -1297,6 +1332,12 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     }
   };
 
+  // Rispondi immediatamente a richieste HEAD (usate da VLC/lettori multimediali per verificare lo stream)
+  if (req.method === 'HEAD') {
+    writeMpegTsHeaders(res);
+    return res.end();
+  }
+
   // Se esiste già uno stream attivo per questo canale, riutilizzalo
   if (activeMpdStreams.has(streamKey)) {
     const existing = activeMpdStreams.get(streamKey);
@@ -1327,12 +1368,12 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
       existing.listeners.delete(res);
       console.log(`[MPD ClearKey Proxy] Client disconnesso da "${title}" (Listener rimanenti: ${existing.listeners.size})`);
       if (existing.listeners.size === 0) {
-        console.log(`[MPD ClearKey Proxy] Avvio timer grazia (3s) prima della chiusura per "${title}"`);
+        console.log(`[MPD ClearKey Proxy] Avvio timer grazia (10s) prima della chiusura per "${title}"`);
         existing.closeTimer = setTimeout(() => {
           console.log(`[MPD ClearKey Proxy] Timer scaduto: terminazione processo FFmpeg per "${title}"`);
           try { existing.proc.kill('SIGKILL'); } catch (e) {}
           activeMpdStreams.delete(streamKey);
-        }, 3000);
+        }, 10000);
       }
     });
 
@@ -1508,13 +1549,13 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     streamState.listeners.delete(res);
     console.log(`[MPD ClearKey Proxy] Client disconnesso da "${title}" (Listener rimanenti: ${streamState.listeners.size})`);
     if (streamState.listeners.size === 0) {
-      console.log(`[MPD ClearKey Proxy] Avvio timer grazia (3s) prima di chiudere FFmpeg per "${title}"`);
+      console.log(`[MPD ClearKey Proxy] Avvio timer grazia (10s) prima di chiudere FFmpeg per "${title}"`);
       streamState.closeTimer = setTimeout(() => {
         console.log(`[MPD ClearKey Proxy] Timer scaduto. Terminazione processo FFmpeg per "${title}"`);
         try { streamState.proc.kill('SIGKILL'); } catch (e) {}
         activeMpdStreams.delete(streamKey);
         dashSegmentSessions.delete(sessionId);
-      }, 3000);
+      }, 10000);
     }
   });
 
