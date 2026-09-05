@@ -17,7 +17,8 @@ else
 fi
 
 # 1. Scarica l'ultimo aggiornamento da GitHub
-echo "[+] Download degli ultimi aggiornamenti dal repository Git..."
+echo "[+] Reset modifiche locali e download aggiornamenti da Git..."
+git checkout -- . 2>/dev/null || true
 git pull
 
 # 2. Aggiorna dipendenze se necessario
