@@ -46,7 +46,30 @@ function getCleanUrl(rawUrl) {
 }
 
 function buildProxyUrl(rawUrl, headersObj, useWarp = false) {
-  const cleanUrl = getCleanUrl(rawUrl);
+  let cleanUrl = getCleanUrl(rawUrl);
+  if (!cleanUrl) return '';
+
+  // Se l'URL contiene già un proxy interno (/api/stream/proxy?url=...),
+  // estrai l'URL target effettivo per evitare loop ricorsivi 502
+  while (cleanUrl && (cleanUrl.includes('/api/stream/proxy') || cleanUrl.includes('%2Fapi%2Fstream%2Fproxy'))) {
+    try {
+      const decoded = decodeURIComponent(cleanUrl);
+      const m = decoded.match(/[?&]url=([^&]+)/);
+      if (m && m[1]) {
+        cleanUrl = decodeURIComponent(m[1]);
+      } else {
+        break;
+      }
+    } catch (e) {
+      break;
+    }
+  }
+
+  // Non proxyare se punta già a un endpoint stream nativo del nostro server (/stream/...)
+  if (cleanUrl.startsWith('/stream/') || (cleanUrl.includes(window.location.host) && cleanUrl.includes('/stream/'))) {
+    return cleanUrl;
+  }
+
   const params = new URLSearchParams({
     url: cleanUrl,
     referer: headersObj.referer || 'https://www.nowtv.it/',
@@ -161,24 +184,79 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     }
   }
 
+  // Helper per avvio fallback FFmpeg MPD ClearKey via mpegts.js
+  const tryMpdFfmpegFallback = async () => {
+    const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
+    if ((cleanUrl.includes('.mpd') || hasClearKey) && window.mpegts && mpegts.isSupported()) {
+      try {
+        const mpdProxyUrl = (ch.id && !ch.id.startsWith('http'))
+          ? `/stream/mpd/${ch.id}${useWarp ? '?warp=1' : ''}`
+          : `/stream/mpd?url=${encodeURIComponent(cleanUrl)}&key=${encodeURIComponent(clearkey)}${ch.headers ? '&headers=' + encodeURIComponent(ch.headers) : ''}${useWarp ? '&warp=1' : ''}`;
+
+        console.log('[Player] Avvio fallback FFmpeg MPD ClearKey via mpegts.js:', mpdProxyUrl);
+        const mpegPlayer = mpegts.createPlayer({
+          type: 'mse',
+          isLive: true,
+          url: mpdProxyUrl
+        }, {
+          enableWorker: true,
+          lazyLoadMaxDuration: 3 * 60,
+          seekType: 'range',
+          liveBufferLatencyChasing: true
+        });
+        mpegPlayer.attachMediaElement(videoEl);
+        mpegPlayer.load();
+        mpegPlayer.play().catch(() => {});
+        if (window.showToast) showToast('🔄 Passato a motore FFmpeg (compatibilità stream)');
+        return mpegPlayer;
+      } catch (mErr) {
+        console.warn('[Player] Fallback mpegts.js non riuscito:', mErr);
+      }
+    }
+    return null;
+  };
+
   if (window.shaka && shaka.Player.isBrowserSupported()) {
     try {
       const isShakaInstance = playerInstance && (playerInstance instanceof shaka.Player || (typeof playerInstance.getNetworkingEngine === 'function' && typeof playerInstance.configure === 'function'));
       if (!isShakaInstance) {
         if (playerInstance) await cleanupPlayer(playerInstance);
         playerInstance = new shaka.Player(videoEl);
-        playerInstance.addEventListener('error', (e) => {
-          console.warn('[Player Shaka Warning]', e.detail);
-          if (e && e.detail) {
-            e.detail.handled = true;
-            if (e.detail.code === 3015) {
-              if (window.showToast) showToast('⚠️ Flusso stream non raggiungibile o offline');
-            }
-          }
-        });
       } else {
         await playerInstance.unload();
       }
+
+      let fatalFallbackOccurred = false;
+      const onFatalError = async (detail) => {
+        if (fatalFallbackOccurred) return;
+        fatalFallbackOccurred = true;
+        console.warn('[Player Shaka Warning / Errore fatale]', detail);
+        if (playerInstance) {
+          await cleanupPlayer(playerInstance);
+          playerInstance = null;
+        }
+        try {
+          videoEl.removeAttribute('src');
+          videoEl.load();
+        } catch (e) {}
+
+        const fb = await tryMpdFfmpegFallback();
+        if (fb) {
+          if (videoEl.id === 'livetv-video') shakaPlayerMain = fb;
+          if (videoEl.id === 'modal-video') shakaPlayerModal = fb;
+        } else {
+          if (window.showToast) showToast('⚠️ Impossibile riprodurre il flusso');
+        }
+      };
+
+      playerInstance.addEventListener('error', (e) => {
+        if (e && e.detail) {
+          e.detail.handled = true;
+          if (e.detail.severity === 2 || e.detail.code === 4032 || e.detail.code === 1001) {
+            onFatalError(e.detail);
+          }
+        }
+      });
 
       // Configurazione ClearKey DRM EME
       playerInstance.configure({
@@ -222,13 +300,17 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
         if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) return;
 
         let uri = request.uris[0];
-        if (!uri || uri.startsWith('data:') || uri.startsWith('blob:') || uri.includes('/api/stream/proxy')) return;
+        if (!uri || uri.startsWith('data:') || uri.startsWith('blob:')) return;
 
-        // Se Shaka ha risolto un segmento relativo su localhost, ricostruisci l'URL CDN
-        if (uri.includes('/api/stream/')) {
-          const rel = uri.substring(uri.indexOf('/api/stream/') + '/api/stream/'.length);
+        const decodedUri = decodeURIComponent(uri);
+        // Se punta già al proxy o ad un endpoint stream locale, non alterare
+        if (decodedUri.includes('/api/stream/proxy') || decodedUri.includes('/stream/')) return;
+
+        // Se Shaka ha risolto un segmento relativo sul nostro host, ricostruisci l'URL CDN reale
+        if (decodedUri.includes('/api/stream/')) {
+          const rel = decodedUri.substring(decodedUri.indexOf('/api/stream/') + '/api/stream/'.length);
           uri = baseDir + rel;
-        } else if (uri.startsWith('http://localhost') || uri.startsWith('http://127.0.0.1')) {
+        } else if (uri.startsWith('http://localhost') || uri.startsWith('http://127.0.0.1') || uri.includes(window.location.host)) {
           try {
             const urlObj = new URL(uri);
             const rel = urlObj.pathname.replace(/^\//, '');
@@ -256,33 +338,9 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     }
   }
 
-  // Fallback 1: Se è un flusso MPD con ClearKey o ID canale valido, usa il proxy FFmpeg interno via mpegts.js
-  const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
-  if ((cleanUrl.includes('.mpd') || hasClearKey) && window.mpegts && mpegts.isSupported()) {
-    try {
-      const mpdProxyUrl = (ch.id && !ch.id.startsWith('http'))
-        ? `/stream/mpd/${ch.id}${useWarp ? '?warp=1' : ''}`
-        : `/stream/mpd?url=${encodeURIComponent(cleanUrl)}&key=${encodeURIComponent(clearkey)}${ch.headers ? '&headers=' + encodeURIComponent(ch.headers) : ''}${useWarp ? '&warp=1' : ''}`;
-
-      console.log('[Player] Avvio fallback FFmpeg MPD ClearKey via mpegts.js:', mpdProxyUrl);
-      const mpegPlayer = mpegts.createPlayer({
-        type: 'mse',
-        isLive: true,
-        url: mpdProxyUrl
-      }, {
-        enableWorker: true,
-        lazyLoadMaxDuration: 3 * 60,
-        seekType: 'range',
-        liveBufferLatencyChasing: true
-      });
-      mpegPlayer.attachMediaElement(videoEl);
-      mpegPlayer.load();
-      mpegPlayer.play().catch(() => {});
-      return mpegPlayer;
-    } catch (mErr) {
-      console.warn('[Player] Fallback mpegts.js non riuscito:', mErr);
-    }
-  }
+  // Fallback 1: Se Shaka non è supportato o ha fallito
+  const fbPlayer = await tryMpdFfmpegFallback();
+  if (fbPlayer) return fbPlayer;
 
   // Fallback 2: Hls.js se è flusso m3u8
   if (window.Hls && Hls.isSupported() && (cleanUrl.includes('.m3u8') || cleanUrl.includes('hls'))) {

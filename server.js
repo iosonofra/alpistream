@@ -342,8 +342,23 @@ app.options('/api/stream/proxy', (req, res) => {
 });
 
 app.get('/api/stream/proxy', async (req, res) => {
-  const { url, referer, origin, ua } = req.query;
+  let { url, referer, origin, ua } = req.query;
   if (!url) return res.status(400).send('Missing stream URL');
+
+  // Protezione anti-loop / unwrap: se url punta ricorsivamente al nostro stesso proxy, estrai il target effettivo
+  while (url && (url.includes('/api/stream/proxy') || url.includes('%2Fapi%2Fstream%2Fproxy'))) {
+    try {
+      const decoded = decodeURIComponent(url);
+      const m = decoded.match(/[?&]url=([^&]+)/);
+      if (m && m[1]) {
+        url = decodeURIComponent(m[1]);
+      } else {
+        break;
+      }
+    } catch (e) {
+      break;
+    }
+  }
 
   const cfg = storage.getConfig();
   let useWarp = req.query.warp === '1' || req.query.warp === 'true';
@@ -420,15 +435,22 @@ app.get('/api/stream/proxy', async (req, res) => {
           }
         }
 
-        // 2. Inietta BaseURL assoluto se assente
-        if (!xml.includes('<BaseURL>')) {
-          let baseUrl = url;
-          if (baseUrl.includes('?')) baseUrl = baseUrl.split('?')[0];
-          const lastSlash = baseUrl.lastIndexOf('/');
-          if (lastSlash !== -1) {
-            const baseDir = baseUrl.substring(0, lastSlash + 1);
-            xml = xml.replace(/(<MPD[^>]*>)/i, `$1\n    <BaseURL>${baseDir}</BaseURL>`);
-          }
+        // 2. Inietta o normalizza BaseURL assoluto per evitare che Shaka risolva segmenti relativi contro l'host locale
+        let remoteBaseDir = url;
+        if (remoteBaseDir.includes('?')) remoteBaseDir = remoteBaseDir.split('?')[0];
+        const lastSlash = remoteBaseDir.lastIndexOf('/');
+        if (lastSlash !== -1) {
+          remoteBaseDir = remoteBaseDir.substring(0, lastSlash + 1);
+        }
+
+        if (!xml.includes('<BaseURL')) {
+          xml = xml.replace(/(<MPD[^>]*>)/i, `$1\n    <BaseURL>${remoteBaseDir}</BaseURL>`);
+        } else {
+          // Se BaseURL è presente ma relativo (non http:// né https://)
+          xml = xml.replace(/<BaseURL\b[^>]*>(?!https?:\/\/)([\s\S]*?)<\/BaseURL>/gi, (m, inner) => {
+            const cleanRel = (inner || '').trim().replace(/^\.\//, '');
+            return `<BaseURL>${remoteBaseDir}${cleanRel}</BaseURL>`;
+          });
         }
 
         res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
