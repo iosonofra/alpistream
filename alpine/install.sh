@@ -8,47 +8,33 @@ echo "======================================================="
 echo "  Installazione MandraKodi Web Manager su Alpine Linux "
 echo "======================================================="
 
-# 1. Aggiorna pacchetti e installa Node.js & npm
-echo "[+] Aggiornamento repository APK e installazione Node.js..."
+# 1. Aggiorna pacchetti e installa Node.js, npm & git
+echo "[+] Aggiornamento repository APK e installazione Node.js, npm, git..."
 apk update
-apk add --no-cache nodejs npm curl tzdata
+apk add --no-cache nodejs npm curl tzdata git
 
-# 2. Crea directory applicazione e gestisci backup configurazione per aggiornamenti puliti
+# 2. Configura directory applicazione
 INSTALL_DIR="/opt/mandrakodi"
+CURRENT_DIR="$(pwd)"
 echo "[+] Configurazione directory di installazione in $INSTALL_DIR..."
 
-if [ -f "$INSTALL_DIR/data/config.json" ]; then
-    echo "[*] Trovata configurazione esistente: backup temporaneo dei dati utente..."
-    mkdir -p /tmp/mandrakodi_backup
-    cp "$INSTALL_DIR/data/config.json" /tmp/mandrakodi_backup/ 2>/dev/null || true
-    if [ -f "$INSTALL_DIR/data/custom_channels.json" ]; then
-        cp "$INSTALL_DIR/data/custom_channels.json" /tmp/mandrakodi_backup/ 2>/dev/null || true
+if [ "$CURRENT_DIR" != "$INSTALL_DIR" ]; then
+    mkdir -p "$INSTALL_DIR"
+    if [ -f "package.json" ]; then
+        echo "[+] Copia file del repository in $INSTALL_DIR..."
+        cp -a . "$INSTALL_DIR/"
+    else
+        echo "[!] Assicurati di copiare i file del progetto o clonare con git in $INSTALL_DIR"
     fi
-fi
-
-mkdir -p "$INSTALL_DIR"
-
-# 3. Copia file applicazione (se eseguito dalla cartella del progetto estratto)
-if [ -f "package.json" ]; then
-    cp -r * "$INSTALL_DIR/"
-else
-    echo "[!] Assicurati di copiare i file del progetto in $INSTALL_DIR"
-fi
-
-# Ripristina configurazione e canali personalizzati
-if [ -d "/tmp/mandrakodi_backup" ]; then
-    echo "[+] Ripristino configurazione utente esistente..."
-    cp -f /tmp/mandrakodi_backup/* "$INSTALL_DIR/data/" 2>/dev/null || true
-    rm -rf /tmp/mandrakodi_backup
 fi
 
 cd "$INSTALL_DIR"
 
-# 4. Installazione dipendenze Node in produzione (zero build tools)
+# 3. Installazione dipendenze Node in produzione (zero build tools)
 echo "[+] Installazione dipendenze NPM..."
 npm install --production --no-audit
 
-# 5. Configurazione Servizio OpenRC
+# 4. Configurazione Servizio OpenRC
 echo "[+] Registrazione servizio OpenRC /etc/init.d/mandrakodi..."
 if [ -f "alpine/mandrakodi.initd" ]; then
     cp alpine/mandrakodi.initd /etc/init.d/mandrakodi
@@ -78,7 +64,7 @@ fi
 
 chmod +x /etc/init.d/mandrakodi
 
-# 6. Abilita e avvia (o riavvia in caso di aggiornamento)
+# 5. Abilita e avvia (o riavvia in caso di aggiornamento)
 if rc-service mandrakodi status >/dev/null 2>&1; then
     echo "[+] Riavvio del servizio mandrakodi in corso..."
     rc-service mandrakodi restart
@@ -88,7 +74,7 @@ else
     rc-service mandrakodi start
 fi
 
-# 7. Opzionale: Installazione automatica Ace Stream Engine
+# 6. Opzionale: Installazione automatica Ace Stream Engine
 echo ""
 echo "-------------------------------------------------------"
 echo "  Configurazione Ace Stream Engine (Opzionale)        "

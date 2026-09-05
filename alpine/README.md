@@ -12,51 +12,44 @@ Questa guida illustra come installare e far girare **MandraKodi Web Manager** co
 
 ---
 
-## 📥 Metodo 1: Installazione Diretta con lo Script
+## 📥 Installazione Iniziale via Git (Consigliata)
 
-1. **Accedi alla console del container Alpine LXC** su Proxmox.
-2. **Crea la directory e copia i file del progetto**:
+1. **Accedi alla console o SSH del container Alpine LXC** su Proxmox.
+2. **Installa Git e clona il repository in `/opt/mandrakodi`**:
    ```sh
-   mkdir -p /opt/mandrakodi
-   ```
-   *(Puoi trasferire la cartella `web-app` tramite SCP, SFTP o Git)*.
-
-3. **Esegui lo script di installazione**:
-   ```sh
+   apk update
+   apk add --no-cache git
+   git clone https://github.com/TUO_USERNAME/NOME_REPO.git /opt/mandrakodi
    cd /opt/mandrakodi
-   chmod +x alpine/install.sh
+   ```
+3. **Esegui lo script di configurazione automatica**:
+   ```sh
+   chmod +x alpine/*.sh
    ./alpine/install.sh
    ```
+   *Lo script installerà Node.js, npm, curl, tzdata, le dipendenze npm di produzione, configurerà il servizio OpenRC `/etc/init.d/mandrakodi` e ti chiederà se desideri avviare anche Ace Stream Engine in automatico.*
 
 ---
 
-## 🛠️ Metodo 2: Installazione Manuale Passo-Passo
+## 🔄 Aggiornamento Pulito con 1 Singolo Comando (Git Pull)
 
-Se preferisci eseguire i passaggi a mano:
+Ogni volta che rilasci una nuova versione o modifichi il codice su GitHub, puoi aggiornare il container istantaneamente senza dover trasferire file zip:
 
-1. **Installa Node.js e le utility**:
-   ```sh
-   apk update
-   apk add nodejs npm curl tzdata
-   ```
+```sh
+cd /opt/mandrakodi
+./alpine/update.sh
+```
 
-2. **Posizionati nella cartella e installa le dipendenze**:
-   ```sh
-   cd /opt/mandrakodi
-   npm install --production --no-audit
-   ```
+Oppure manualmente:
+```sh
+cd /opt/mandrakodi
+git pull
+npm install --production --no-audit
+rc-service mandrakodi restart
+```
 
-3. **Configura il servizio OpenRC**:
-   ```sh
-   cp alpine/mandrakodi.initd /etc/init.d/mandrakodi
-   chmod +x /etc/init.d/mandrakodi
-   ```
-
-4. **Avvia e abilita il servizio all'avvio del sistema**:
-   ```sh
-   rc-update add mandrakodi default
-   rc-service mandrakodi start
-   ```
+> [!NOTE]
+> Le impostazioni salvate (`config.json`), i canali personalizzati (`custom_channels.json`) e le preferenze dei gruppi **vengono preservate al 100%** e non andranno mai in conflitto con `git pull`.
 
 ---
 
@@ -103,3 +96,64 @@ docker run -d \
 
 Tutti i dispositivi che usano la playlist `http://<IP_MANDRAKODI>:3000/playlist.m3u` riprodurranno istantaneamente qualsiasi canale AceStream senza configurazioni aggiuntive!
 
+---
+
+## 🏎️ Impostazioni Consigliate su Proxmox VE per Massime Prestazioni
+
+Per garantire uno streaming IPTV fluido, reattivo e a zero lag verso tutti i tuoi dispositivi (Smart TV, Kodi, VLC, smartphone), ecco la configurazione consigliata per il container LXC Alpine Linux su Proxmox VE:
+
+### 1. Risorse Hardware (CPU & RAM)
+| Risorsa | Solo MandraKodi | MandraKodi + Ace Engine | Note |
+|---|---|---|---|
+| **CPU Cores** | **1 vCPU** | **2 vCPU** | 2 core garantiscono che la transcodifica/buffer P2P non rallenti il server Web. |
+| **CPU Units** | 1024 | 1024 (o 2048) | Aumenta a 2048 se vuoi dare priorità allo streaming rispetto ad altri container. |
+| **RAM** | **256 MB** | **512 MB - 1024 MB** | Ace Engine alloca un buffer in RAM per i chunk scaricati dai peer. |
+| **Swap** | 256 MB | 512 MB | Protegge dal superamento improvviso della RAM durante estrazioni massive. |
+
+---
+
+### 2. Funzionalità del Container (*Opzioni -> Features*)
+- **Nesting**: **Abilitato (`features: nesting=1`)**
+  - *Fondamentale se installi Docker / Ace Stream Engine all'interno del container.*
+- **Keyctl**: **Abilitato (`features: keyctl=1`)**
+  - *Raccomandato per container unprivileged su Proxmox 7/8.*
+- **Unprivileged Container**: **Sì (`unprivileged: 1`)**
+  - *Sicuro e pienamente supportato.*
+
+---
+
+### 3. Disco & I/O (*Risorse -> Root Disk*)
+- **Dimensione Disco**:
+  - **2 GB**: sufficienti se installi solo MandraKodi.
+  - **4 GB - 6 GB**: consigliati se installi anche Docker e l'immagine AceStream.
+- **Opzione `noatime` (Zero scritture inutili su SSD)**:
+  - Per evitare continue scritture su SSD dei timestamp di lettura file durante lo streaming di flussi video continui, aggiungi `mountoptions=noatime` nella configurazione del container `/etc/pve/lxc/<CTID>.conf` dell'host Proxmox:
+    ```
+    rootfs: local-lvm:subvol-XXX-disk-0,size=4G,mountoptions=noatime
+    ```
+
+---
+
+### 4. Rete (*Network*)
+- **Bridge**: `vmbr0` (interfaccia di rete bridged).
+- **Firewall Proxmox**: **Disabilitato (`firewall=0`)** sull'interfaccia del container se ti trovi all'interno della rete locale fidata. Questo rimuove l'overhead di filtraggio `iptables` sul traffico streaming.
+
+---
+
+### 5. Ottimizzazioni Sistema Operativo (Alpine Linux)
+AceStream e Node.js aprono decine di socket TCP simultanei verso i peer BitTorrent e i client IPTV. All'interno della console di Alpine, puoi impostare questi parametri per la massima fluidità:
+
+Crea o modifica il file `/etc/sysctl.d/99-streaming.conf`:
+```ini
+# Aumenta il limite di file/socket aperti contemporaneamente
+fs.file-max = 2097152
+net.core.somaxconn = 4096
+net.ipv4.tcp_max_syn_backlog = 4096
+
+# Favorisci la RAM prima di ricorrere allo swap
+vm.swappiness = 10
+```
+Applica subito con:
+```sh
+sysctl --system
+```

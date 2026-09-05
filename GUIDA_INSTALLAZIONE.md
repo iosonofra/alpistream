@@ -1,146 +1,184 @@
-# ⚡ MandraKodi Web Manager & IPTV Hub - Guida Installazione & Aggiornamento Pulito
+# ⚡ MandraKodi Web Manager & IPTV Hub - Guida Installazione & Aggiornamento via Git
 
-Questa guida illustra la procedura completa per l'**installazione da zero** e l'**aggiornamento pulito** di **MandraKodi Web Manager** (con supporto per Playlist M3U, Guida EPG XMLTV, Channel Editor, Palinsesto Eventi Sportivi Live e **Proxy HTTP Centralizzato per AceStream**).
+Questa guida illustra la procedura completa per l'**installazione da zero** e l'**aggiornamento rapido con Git** (`git clone` e `git pull`) di **MandraKodi Web Manager** (con supporto per Playlist M3U, Guida EPG XMLTV, Channel Editor, Palinsesto Eventi Sportivi Live e **Proxy HTTP Centralizzato per AceStream**).
 
 ---
 
-## 📦 Pacchetto ZIP Pronto all'Uso
+## 🎯 Vantaggi del Metodo Git Pull
+- ⚡ **Aggiornamenti in 1 secondo**: per aggiornare basta digitare `./alpine/update.sh` o `git pull`.
+- 🛡️ **Zero conflitti**: i canali personalizzati, le credenziali e le impostazioni salvate (`data/config.json`, `data/custom_channels.json`) sono esclusi dal tracciamento Git (`.gitignore`).
+- 🧹 **Zero residui**: nessun archivio ZIP da caricare via FTP o scompattare a mano.
 
-Il pacchetto pulito della Web App è pronto per il download e il trasferimento:
-- **File ZIP**: **[`mandrakodi-web-app.zip`](file:///c:/Users/franc/.gemini/antigravity/scratch/plugin.video.mandrakodi/mandrakodi-web-app.zip)** *(disponibile nella root del progetto e in `dist/`)*
-- **Caratteristiche**: Include tutto il backend Express, il frontend web player (`mpegts.js`), i servizi di estrazione, gli script OpenRC/Alpine e Docker, **senza** `node_modules` o dump pesanti, per un peso di soli ~1.8 MB.
+---
+
+## 0. 🐙 Pubblicazione su GitHub (Primo Passo)
+
+Se non hai ancora caricato la Web App sul tuo repository GitHub personale:
+
+1. **Crea un nuovo repository vuoto su GitHub** (es. `mandrakodi-web` o `mandrakodi-web-manager`).
+2. **Dal tuo computer / cartella `web-app`, esegui**:
+   ```sh
+   cd web-app
+   git init
+   git add .
+   git commit -m "feat: MandraKodi Web Manager with Centralized AceStream Proxy & Git updates"
+   git branch -M main
+   git remote add origin https://github.com/TUO_USERNAME/NOME_REPO.git
+   git push -u origin main
+   ```
 
 ---
 
 ## 1. 🚀 Installazione su Proxmox VE (Container LXC Alpine Linux)
 
-Questa è l'installazione consigliata per le massime prestazioni e il minimo consumo di risorse (meno di 30 MB di RAM!).
+Questa è l'installazione raccomandata per le massime prestazioni e il minimo consumo di risorse (meno di 30 MB di RAM per il server Web!).
 
 ### Requisiti del Container:
-- **Template Proxmox**: `alpine-3.x-default_...tar.zst`
-- **RAM**: 128 MB o 256 MB
-- **Disco**: 1 GB o 2 GB
-- **CPU**: 1 Core
+- **Template Proxmox**: `alpine-3.x-default_...tar.zst` (scaricabile da Proxmox -> local -> CT Templates)
+- **RAM**: 256 MB (o 512 MB/1 GB se attivi anche Ace Stream Engine)
+- **Disco**: 2 GB (o 4 GB con Ace Engine)
+- **CPU**: 1 o 2 vCPU
 
-### Procedura:
+### Procedura di Installazione da Zero via Git:
 1. **Accedi alla console o SSH del container Alpine LXC**.
-2. **Estrai il pacchetto ZIP in `/opt/mandrakodi`**:
+2. **Installa Git e clona il repository direttamente in `/opt/mandrakodi`**:
    ```sh
-   mkdir -p /opt/mandrakodi
-   # Trasferisci ed estrai il file mandrakodi-web-app.zip in /opt/mandrakodi
-   unzip -o mandrakodi-web-app.zip -d /opt/mandrakodi
+   apk update
+   apk add --no-cache git
+   git clone https://github.com/TUO_USERNAME/NOME_REPO.git /opt/mandrakodi
    cd /opt/mandrakodi
    ```
 3. **Esegui lo script di installazione automatica**:
    ```sh
-   chmod +x alpine/install.sh
+   chmod +x alpine/*.sh
    ./alpine/install.sh
    ```
-4. **Fatto!** Il servizio viene abilitato al boot del container e avviato automaticamente:
+   *Lo script configurerà Node.js, npm, le dipendenze, il demone di avvio automatico OpenRC `/etc/init.d/mandrakodi` e ti chiederà se desideri avviare anche Ace Stream Engine in automatico.*
+
+4. **Fatto!** Il servizio è subito attivo e si avvierà automaticamente al riavvio del container:
    - **Dashboard Web**: `http://<IP_CONTAINER_ALPINE>:3000`
    - **Playlist M3U**: `http://<IP_CONTAINER_ALPINE>:3000/playlist.m3u`
    - **Guida EPG**: `http://<IP_CONTAINER_ALPINE>:3000/epg.xml`
 
 ---
 
-## 2. 🔄 Procedura di Aggiornamento Pulito (Clean Update) su Proxmox / Alpine
+## 2. 🔄 Procedura di Aggiornamento con 1 Singolo Comando (`git pull`)
 
-Lo script `install.sh` include la **protezione automatica della configurazione**: se hai già canali personalizzati o credenziali configurate, non andranno perse!
+Quando rilasci una nuova versione o applichi modifiche su GitHub, non devi fare alcuna reinstallazione né riconfigurazione.
 
-### Come aggiornare un'istanza esistente:
-1. Scarica la nuova versione di `mandrakodi-web-app.zip`.
-2. Trasferisci il file zip sul container (ad esempio in `/tmp`).
-3. Estrai i file sopra l'installazione precedente:
-   ```sh
-   cd /opt/mandrakodi
-   unzip -o /tmp/mandrakodi-web-app.zip -d /tmp/mandra_update
-   cp -r /tmp/mandra_update/* /opt/mandrakodi/
-   rm -rf /tmp/mandra_update
-   ```
-4. Esegui nuovamente l'installer:
-   ```sh
-   chmod +x alpine/install.sh
-   ./alpine/install.sh
-   ```
-   *L'installer riconoscerà la presenza dei file utente `config.json` e `custom_channels.json`, ne effettuerà il backup temporaneo, installerà le eventuali nuove dipendenze NPM, ripristinerà la tua configurazione e riavvierà il servizio OpenRC senza alcun downtime prolungato.*
+### Metodo 1: Script Automatico di Aggiornamento
+Collegati al container ed esegui:
+```sh
+cd /opt/mandrakodi
+./alpine/update.sh
+```
 
----
+### Metodo 2: Comandi Manuali
+```sh
+cd /opt/mandrakodi
+git pull
+npm install --production --no-audit
+rc-service mandrakodi restart
+```
 
-## 3. 🐳 Installazione tramite Docker / Docker Compose
-
-Se preferisci eseguire l'applicazione tramite Docker:
-
-1. Estrai `mandrakodi-web-app.zip`.
-2. Nella cartella estratta è già presente il `Dockerfile` e `docker-compose.yml`.
-3. Avvia il container:
-   ```sh
-   docker compose up -d
-   ```
-4. La cartella `./data` viene montata come volume persistente, garantendo che le modifiche ai canali e alle impostazioni rimangano salvate anche al riavvio o all'aggiornamento del container.
+> [!NOTE]
+> **Preservazione Totale dei Dati**: I file di cache, gli eventi salvati e le tue personalizzazioni (`data/config.json`, `data/custom_channels.json`, ecc.) rimangono al 100% intatti. Il comando `git pull` non genererà mai errori o conflitti di merge.
 
 ---
 
-## 4. 💻 Installazione Locale (Windows / Linux / Mac)
+## 3. 🐳 Installazione e Aggiornamento via Docker / Docker Compose
 
-1. Assicurati di avere **Node.js** (versione 18, 20 o 22) installato.
-2. Estrai `mandrakodi-web-app.zip` in una cartella a piacere.
-3. Apri il terminale (o PowerShell) nella cartella ed esegui:
+Se preferisci usare Docker (su Ubuntu, Debian, Proxmox o NAS):
+
+### Installazione Iniziale:
+```sh
+git clone https://github.com/TUO_USERNAME/NOME_REPO.git /opt/mandrakodi
+cd /opt/mandrakodi
+docker compose up -d
+```
+*Il `docker-compose.yml` avvia sia MandraKodi Web sia Ace Stream Engine già collegati tra loro.*
+
+### Aggiornamento Docker con Git:
+```sh
+cd /opt/mandrakodi
+git pull
+docker compose up -d --build
+```
+
+---
+
+## 4. 💻 Installazione Locale (Windows / Linux / macOS)
+
+### Installazione Iniziale:
+1. Installa [Node.js](https://nodejs.org/) (v18, v20 o v22) e [Git](https://git-scm.com/).
+2. Apri il terminale (o PowerShell) e clona il repository:
    ```sh
+   git clone https://github.com/TUO_USERNAME/NOME_REPO.git
+   cd NOME_REPO
    npm install --production
    npm start
    ```
-4. Apri il browser su `http://localhost:3000`.
+3. Apri il browser all'indirizzo `http://localhost:3000`.
+
+### Aggiornamento Locale:
+```sh
+git pull
+npm install --production
+npm start
+```
 
 ---
 
-## 5. ⚡ Configurazione AceStream Proxy Centralizzato (Zero Engine sui Client)
+## 5. ⚡ AceStream Proxy Centralizzato (Zero Engine sui Client)
 
-MandraKodi Web Manager consente a qualsiasi Smart TV, Fire Stick, smartphone o TV box di riprodurre i canali AceStream (es. Last Minute, Serie A, Sport) **senza che il dispositivo client debba installare alcun software P2P**.
+MandraKodi Web Manager converte automaticamente tutti i flussi P2P AceStream in **stream HTTP MPEG-TS standard** (`http://<IP_SERVER>:3000/stream/ace/<hash>`).
 
-### A. Avvio di Ace Stream Engine sul Server:
-Puoi eseguire Ace Stream Engine sulla stessa macchina o su un server locale tramite Docker:
-```sh
-docker run -d \
-  --name acestream-engine \
-  --restart unless-stopped \
-  -p 6878:6878 \
-  magnetikonline/acestream-server
-```
+### A cosa serve?
+Qualsiasi dispositivo nella tua rete (Smart TV, Fire TV Stick con TiviMate, Apple TV, VLC, Kodi, smartphone) riprodurrà i canali sportivi e le dirette AceStream **senza installare alcuna app Ace Stream, senza registrazioni e senza consumo di batteria/CPU sui dispositivi mobili**.
 
-### B. Collegamento nella Dashboard:
+### Configurazione nella Dashboard Web:
 1. Accedi alla Dashboard Web (`http://<IP_SERVER>:3000`).
 2. Apri la scheda **⚙️ Impostazioni**.
 3. Nella sezione **⚡ Proxy AceStream Centralizzato**:
    - Assicurati che **Abilita riscrittura automatica canali AceStream tramite Proxy Centralizzato** sia spuntato.
-   - Inserisci l'host del motore (es. `127.0.0.1:6878` se locale, oppure `IP_SERVER:6878` se remoto).
-   - Clicca su **🔍 Testa Connessione**: comparirà il badge verde di conferma `✅ Ace Engine Online!`.
+   - Inserisci l'host del motore Ace Stream (es. `127.0.0.1:6878` se gira sullo stesso server/container, oppure l'IP dell'host dove gira Docker).
+   - Clicca su **🔍 Testa Connessione**: comparirà il messaggio di conferma `✅ Ace Engine Online!`.
    - Clicca su **💾 Salva Impostazioni**.
 
 ---
 
-## 6. 📺 Utilizzo della Playlist su Client IPTV
+## 6. 📺 Come Inserire la Playlist sui Tuoi Dispositivi IPTV
 
-Tutti i dispositivi (TiviMate, Smart TV, VLC, Kodi Simple IPTV) necessitano unicamente dei due link generati dal server:
+Configura il tuo client preferito (TiviMate, IPTV Smarters, Kodi PVR IPTV Simple Client, VLC):
 
-- **Playlist M3U**: `http://<IP_DEL_SERVER>:3000/playlist.m3u`
-- **Guida EPG**: `http://<IP_DEL_SERVER>:3000/epg.xml`
+- **URL Playlist M3U**:
+  ```
+  http://<IP_DEL_SERVER>:3000/playlist.m3u
+  ```
+- **URL Guida EPG (XMLTV)**:
+  ```
+  http://<IP_DEL_SERVER>:3000/epg.xml
+  ```
 
-Tutti i canali AceStream inclusi nella playlist verranno richiesti all'endpoint `http://<IP_DEL_SERVER>:3000/stream/ace/<hash>`, che farà da proxy HTTP MPEG-TS trasparente.
+Tutti i canali AceStream inclusi nella playlist verranno automaticamente instradati dal server locale verso il player video, garantendo visione istantanea e buffering fluido.
 
 ---
 
-## 7. 🐙 Caricamento del Progetto su GitHub
+## 7. 🕹️ Comandi Utili per il Container Alpine (OpenRC)
 
-Se desideri pubblicare la Web App su un tuo repository GitHub dedicato:
+- **Stato del servizio**: `rc-service mandrakodi status`
+- **Riavvia l'applicazione**: `rc-service mandrakodi restart`
+- **Ferma l'applicazione**: `rc-service mandrakodi stop`
+- **Visualizza i log in tempo reale**:
+  ```sh
+  tail -f /var/log/mandrakodi.log
+  ```
+- **Visualizza eventuali errori**:
+  ```sh
+  tail -f /var/log/mandrakodi.err
+  ```
 
-1. **Crea un nuovo repository vuoto su GitHub** (es. `mandrakodi-web-manager` o `mandrakodi-web-app`).
-2. **Dalla cartella `web-app`, esegui**:
-   ```sh
-   cd web-app
-   git init
-   git add .
-   git commit -m "MandraKodi Web Manager v1.1.0: Centralized AceStream Proxy, Live TV Player & IPTV Hub"
-   git branch -M main
-   git remote add origin https://github.com/TUO_USERNAME/NOME_REPO.git
-   git push -u origin main
-   ```
+---
+
+## 📦 Alternativa Offline (Archivio ZIP)
+Se operi su una macchina o server senza connettività a GitHub per il comando `git clone`, è comunque disponibile l'archivio ZIP pronto all'uso `mandrakodi-web-app.zip` (pesa ~1.8 MB, privo di `node_modules` e file non necessari) nella root del progetto e in `dist/`.
