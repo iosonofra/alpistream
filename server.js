@@ -6,6 +6,7 @@ const http = require('http');
 const https = require('https');
 const net = require('net');
 const { spawn, exec } = require('child_process');
+const crypto = require('crypto');
 let SocksProxyAgent;
 try {
   SocksProxyAgent = require('socks-proxy-agent').SocksProxyAgent;
@@ -924,14 +925,51 @@ function getBestVideoRepresentation(reps) {
   return bestRep;
 }
 
+// Gestione sessioni segmenti DASH proxy (per canali WARP e bypass restrizioni CDN)
+const dashSegmentSessions = new Map();
+
+// Pulizia periodica sessioni DASH inattive (ogni 2 minuti)
+setInterval(() => {
+  const now = Date.now();
+  for (const [sId, sess] of dashSegmentSessions.entries()) {
+    if (now - sess.lastAccess > 120000) {
+      dashSegmentSessions.delete(sId);
+    }
+  }
+}, 120000);
+
 // Funzione di ottimizzazione del manifest MPD per eliminare micro-buffering, stuttering e forzare 1080p full HD
-function cleanAndBufferMpd(manifest, targetUrl) {
+function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
 
-  // 1. Inietta BaseURL assoluto se assente, così FFmpeg scarica i segmenti (.m4s) direttamente dalla CDN al massimo della banda
-  if (!cleaned.includes('<BaseURL>') && !cleaned.includes('<BaseURL ')) {
-    const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-    cleaned = cleaned.replace(/<Period\b/i, `<BaseURL>${baseUrl}</BaseURL>\n  <Period`);
+  // 1. Gestione BaseURL per i segmenti
+  if (sessionId) {
+    const session = dashSegmentSessions.get(sessionId);
+    if (session) {
+      // Estrai il BaseURL effettivo della CDN dal manifest originale
+      const periodMatches = [...cleaned.matchAll(/<BaseURL>([^<]+)<\/BaseURL>/gi)];
+      if (periodMatches.length > 1) {
+        // Se ci sono più BaseURL (es. uno in MPD e uno in Period tipo DAZN '.../web/dash/'), prendi l'ultimo per i segmenti
+        session.cdnBaseUrl = periodMatches[periodMatches.length - 1][1].trim();
+      } else if (periodMatches.length === 1) {
+        session.cdnBaseUrl = periodMatches[0][1].trim();
+      } else {
+        session.cdnBaseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+      }
+
+      // Rimuovi tutti i vecchi tag BaseURL
+      cleaned = cleaned.replace(/<BaseURL>[^<]+<\/BaseURL>/gi, '');
+
+      // Inietta il nuovo BaseURL puntato al proxy locale
+      const localBaseUrl = `http://127.0.0.1:${port || PORT}/internal/dash-seg/${sessionId}/`;
+      cleaned = cleaned.replace(/<Period\b([^>]*)>/i, `<Period$1>\n    <BaseURL>${localBaseUrl}</BaseURL>`);
+    }
+  } else {
+    // Comportamento standard per non-WARP: inietta BaseURL assoluto se assente
+    if (!cleaned.includes('<BaseURL>') && !cleaned.includes('<BaseURL ')) {
+      const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
+      cleaned = cleaned.replace(/<Period\b/i, `<BaseURL>${baseUrl}</BaseURL>\n  <Period`);
+    }
   }
 
   // 2. In ogni AdaptationSet video (riconosciuto da contentType="video", mimeType="video/..." o attributo width/height),
@@ -979,10 +1017,56 @@ function cleanAndBufferMpd(manifest, targetUrl) {
   return cleaned;
 }
 
+// Endpoint proxy segmenti DASH (.dash / .m4s / init segment)
+app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
+  const sessionId = req.params.sessionId;
+  const filename = req.params[0];
+  const session = dashSegmentSessions.get(sessionId);
+
+  if (!session) {
+    return res.status(404).send('Sessione DASH non trovata o scaduta');
+  }
+  session.lastAccess = Date.now();
+
+  const cdnBase = session.cdnBaseUrl || session.targetUrl.substring(0, session.targetUrl.lastIndexOf('/') + 1);
+  const targetSegmentUrl = new URL(filename, cdnBase).href;
+
+  try {
+    const axiosOpts = {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      headers: session.headers || {}
+    };
+    if (session.useWarp) {
+      const agent = getWarpAgent();
+      if (agent) {
+        axiosOpts.httpAgent = agent;
+        axiosOpts.httpsAgent = agent;
+      }
+    } else {
+      axiosOpts.httpAgent = httpKeepAliveAgent;
+      axiosOpts.httpsAgent = httpsKeepAliveAgent;
+    }
+
+    const response = await axios.get(targetSegmentUrl, axiosOpts);
+    res.writeHead(200, {
+      'Content-Type': response.headers['content-type'] || 'video/mp4',
+      'Content-Length': response.data.length,
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=60'
+    });
+    res.end(response.data);
+  } catch (err) {
+    console.error(`[DASH Segment Proxy] Errore fetch ${filename}: ${err.message}`);
+    if (!res.headersSent) res.status(502).send(err.message);
+  }
+});
+
 // Endpoint interno proxy manifest MPD con live buffer e selezione traccia
 app.get('/internal/mpd', async (req, res) => {
   const targetUrl = req.query.url;
   const headersStr = req.query.headers;
+  const sessionId = req.query.sessionId;
   const cfg = storage.getConfig();
   let useWarp = req.query.warp === '1' || req.query.warp === 'true';
   if (!useWarp && cfg && cfg.warpEnabled && targetUrl) {
@@ -1016,7 +1100,23 @@ app.get('/internal/mpd', async (req, res) => {
       }
     }
     const response = await axios.get(targetUrl, axiosOpts);
-    const processed = cleanAndBufferMpd(response.data, targetUrl);
+
+    let effectiveSessionId = sessionId;
+    if (useWarp && !effectiveSessionId) {
+      effectiveSessionId = crypto.createHash('md5').update(targetUrl).digest('hex').substring(0, 16);
+      if (!dashSegmentSessions.has(effectiveSessionId)) {
+        dashSegmentSessions.set(effectiveSessionId, {
+          targetUrl,
+          headers: reqHeaders,
+          useWarp: true,
+          cdnBaseUrl: '',
+          createdAt: Date.now(),
+          lastAccess: Date.now()
+        });
+      }
+    }
+
+    const processed = cleanAndBufferMpd(response.data, targetUrl, effectiveSessionId, PORT);
     res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(processed);
@@ -1211,8 +1311,31 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     return;
   }
 
+  // Genera sessionId univoco per il proxying dei segmenti DASH
+  const sessionId = crypto.createHash('md5').update(streamKey).digest('hex').substring(0, 16);
+
+  if (useWarp) {
+    const reqHeaders = {};
+    if (headersStr) {
+      const pairs = headersStr.split('&');
+      for (const p of pairs) {
+        const [k, ...v] = p.split('=');
+        if (k && v.length) reqHeaders[k.trim()] = v.join('=').trim();
+      }
+    }
+    dashSegmentSessions.set(sessionId, {
+      targetUrl,
+      headers: reqHeaders,
+      useWarp: true,
+      cdnBaseUrl: '',
+      createdAt: Date.now(),
+      lastAccess: Date.now()
+    });
+    console.log(`[MPD ClearKey Proxy] Sessione segmenti DASH registrata (${sessionId}) con Cloudflare WARP`);
+  }
+
   // Costruisci URL dell'endpoint interno MPD bufferizzato
-  const internalMpdUrl = `http://127.0.0.1:${PORT}/internal/mpd?url=${encodeURIComponent(targetUrl)}${headersStr ? `&headers=${encodeURIComponent(headersStr)}` : ''}${useWarp ? '&warp=1' : ''}`;
+  const internalMpdUrl = `http://127.0.0.1:${PORT}/internal/mpd?url=${encodeURIComponent(targetUrl)}${headersStr ? `&headers=${encodeURIComponent(headersStr)}` : ''}${useWarp ? `&warp=1&sessionId=${sessionId}` : ''}`;
 
   // Avvio nuovo processo FFmpeg con parametri anti-buffering e stabilizzazione A/V
   console.log(`[MPD ClearKey Proxy] Avvio nuovo processo FFmpeg per "${title}" (Key: ${keyHex.substring(0, 8)}...${useWarp ? ' | WARP: ON' : ''})...`);
@@ -1263,20 +1386,14 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
 
 
   const ffmpegEnv = { ...process.env };
-  if (useWarp) {
-    const warpHost = (cfg && cfg.warpHost) || '127.0.0.1:40000';
-    const socksUrl = `socks5h://${warpHost}`;
-    const httpUrl = `http://${warpHost}`;
-    ffmpegEnv.ALL_PROXY = socksUrl;
-    ffmpegEnv.all_proxy = socksUrl;
-    ffmpegEnv.HTTP_PROXY = httpUrl;
-    ffmpegEnv.http_proxy = httpUrl;
-    ffmpegEnv.HTTPS_PROXY = httpUrl;
-    ffmpegEnv.https_proxy = httpUrl;
-    ffmpegEnv.NO_PROXY = '127.0.0.1,localhost';
-    ffmpegEnv.no_proxy = '127.0.0.1,localhost';
-    console.log(`[MPD ClearKey Proxy] Routing FFmpeg via Cloudflare WARP (${warpHost}) abilitato per "${title}"`);
-  }
+  // Rimuovi proxy dall'ambiente di FFmpeg: FFmpeg si connette solo a localhost (127.0.0.1)
+  // Il fetch protetto via WARP verso la CDN viene gestito nativamente da Node.js
+  delete ffmpegEnv.HTTP_PROXY;
+  delete ffmpegEnv.http_proxy;
+  delete ffmpegEnv.HTTPS_PROXY;
+  delete ffmpegEnv.https_proxy;
+  delete ffmpegEnv.ALL_PROXY;
+  delete ffmpegEnv.all_proxy;
 
   let ffmpegProc;
   try {
@@ -1356,6 +1473,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
       } catch (e) {}
     }
     activeMpdStreams.delete(streamKey);
+    dashSegmentSessions.delete(sessionId);
   });
 
   req.on('close', () => {
@@ -1367,6 +1485,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
         console.log(`[MPD ClearKey Proxy] Timer scaduto. Terminazione processo FFmpeg per "${title}"`);
         try { streamState.proc.kill('SIGKILL'); } catch (e) {}
         activeMpdStreams.delete(streamKey);
+        dashSegmentSessions.delete(sessionId);
       }, 3000);
     }
   });
