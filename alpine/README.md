@@ -103,3 +103,64 @@ docker run -d \
 
 Tutti i dispositivi che usano la playlist `http://<IP_MANDRAKODI>:3000/playlist.m3u` riprodurranno istantaneamente qualsiasi canale AceStream senza configurazioni aggiuntive!
 
+---
+
+## 🏎️ Impostazioni Consigliate su Proxmox VE per Massime Prestazioni
+
+Per garantire uno streaming IPTV fluido, reattivo e a zero lag verso tutti i tuoi dispositivi (Smart TV, Kodi, VLC, smartphone), ecco la configurazione consigliata per il container LXC Alpine Linux su Proxmox VE:
+
+### 1. Risorse Hardware (CPU & RAM)
+| Risorsa | Solo MandraKodi | MandraKodi + Ace Engine | Note |
+|---|---|---|---|
+| **CPU Cores** | **1 vCPU** | **2 vCPU** | 2 core garantiscono che la transcodifica/buffer P2P non rallenti il server Web. |
+| **CPU Units** | 1024 | 1024 (o 2048) | Aumenta a 2048 se vuoi dare priorità allo streaming rispetto ad altri container. |
+| **RAM** | **256 MB** | **512 MB - 1024 MB** | Ace Engine alloca un buffer in RAM per i chunk scaricati dai peer. |
+| **Swap** | 256 MB | 512 MB | Protegge dal superamento improvviso della RAM durante estrazioni massive. |
+
+---
+
+### 2. Funzionalità del Container (*Opzioni -> Features*)
+- **Nesting**: **Abilitato (`features: nesting=1`)**
+  - *Fondamentale se installi Docker / Ace Stream Engine all'interno del container.*
+- **Keyctl**: **Abilitato (`features: keyctl=1`)**
+  - *Raccomandato per container unprivileged su Proxmox 7/8.*
+- **Unprivileged Container**: **Sì (`unprivileged: 1`)**
+  - *Sicuro e pienamente supportato.*
+
+---
+
+### 3. Disco & I/O (*Risorse -> Root Disk*)
+- **Dimensione Disco**:
+  - **2 GB**: sufficienti se installi solo MandraKodi.
+  - **4 GB - 6 GB**: consigliati se installi anche Docker e l'immagine AceStream.
+- **Opzione `noatime` (Zero scritture inutili su SSD)**:
+  - Per evitare continue scritture su SSD dei timestamp di lettura file durante lo streaming di flussi video continui, aggiungi `mountoptions=noatime` nella configurazione del container `/etc/pve/lxc/<CTID>.conf` dell'host Proxmox:
+    ```
+    rootfs: local-lvm:subvol-XXX-disk-0,size=4G,mountoptions=noatime
+    ```
+
+---
+
+### 4. Rete (*Network*)
+- **Bridge**: `vmbr0` (interfaccia di rete bridged).
+- **Firewall Proxmox**: **Disabilitato (`firewall=0`)** sull'interfaccia del container se ti trovi all'interno della rete locale fidata. Questo rimuove l'overhead di filtraggio `iptables` sul traffico streaming.
+
+---
+
+### 5. Ottimizzazioni Sistema Operativo (Alpine Linux)
+AceStream e Node.js aprono decine di socket TCP simultanei verso i peer BitTorrent e i client IPTV. All'interno della console di Alpine, puoi impostare questi parametri per la massima fluidità:
+
+Crea o modifica il file `/etc/sysctl.d/99-streaming.conf`:
+```ini
+# Aumenta il limite di file/socket aperti contemporaneamente
+fs.file-max = 2097152
+net.core.somaxconn = 4096
+net.ipv4.tcp_max_syn_backlog = 4096
+
+# Favorisci la RAM prima di ricorrere allo swap
+vm.swappiness = 10
+```
+Applica subito con:
+```sh
+sysctl --system
+```
