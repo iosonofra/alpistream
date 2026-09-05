@@ -5,16 +5,16 @@ const path = require('path');
 const http = require('http');
 const net = require('net');
 const { spawn, exec } = require('child_process');
-const { SocksProxyAgent } = require('socks-proxy-agent');
-const storage = require('./services/storage');
-const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
-const epgManager = require('./services/epg');
-const eventsManager = require('./services/events');
-const scheduler = require('./services/scheduler');
-const HTSportService = require('./services/htsport');
+let SocksProxyAgent;
+try {
+  SocksProxyAgent = require('socks-proxy-agent').SocksProxyAgent;
+} catch (e) {
+  console.warn('[WARP Proxy] Modulo socks-proxy-agent non trovato. Esegui npm install sul server.');
+}
 
 // Helper per ottenere l'agente proxy Cloudflare WARP SOCKS5
 function getWarpAgent() {
+  if (!SocksProxyAgent) return null;
   const cfg = storage.getConfig();
   const rawHost = (cfg && cfg.warpHost) || '127.0.0.1:40000';
   const proxyUrl = rawHost.includes('://') ? rawHost : `socks5h://${rawHost}`;
@@ -696,7 +696,8 @@ app.get('/api/warp/status', async (req, res) => {
         success: false,
         online: false,
         host: warpHost,
-        error: 'Configurazione proxy WARP non valida.'
+        error: !SocksProxyAgent ? 'Dipendenza npm socks-proxy-agent non ancora installata.' : 'Configurazione proxy WARP non valida.',
+        hint: !SocksProxyAgent ? "Esegui './alpine/update.sh' sul container Alpine per installare le dipendenze npm e riavviare MandraKodi." : "Verifica l'indirizzo Host:Porta inserito."
       });
     }
 

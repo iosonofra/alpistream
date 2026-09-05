@@ -356,31 +356,35 @@ if (btnTestFfmpeg) {
   });
 }
 
-// Test Connessione Cloudflare WARP SOCKS5
-const btnTestWarp = document.getElementById('btn-test-warp');
-if (btnTestWarp) {
-  btnTestWarp.addEventListener('click', async () => {
-    const badge = document.getElementById('warp-status-badge');
-    if (!badge) return;
-    badge.innerHTML = '<span class="text-muted">⏳ Test connessione Cloudflare WARP in corso...</span>';
-    btnTestWarp.disabled = true;
+async function testWarpConnection() {
+  const badge = document.getElementById('warp-status-badge');
+  const btn = document.getElementById('btn-test-warp');
+  if (badge) badge.innerHTML = '<span class="text-muted">⏳ Test connessione Cloudflare WARP in corso...</span>';
+  if (btn) btn.disabled = true;
 
-    try {
-      const res = await fetch('/api/warp/status');
-      const data = await res.json();
+  try {
+    const res = await fetch('/api/warp/status');
+    const data = await res.json();
+    if (badge) {
       if (data.online && data.isWarp) {
         badge.innerHTML = `<span style="color: #4ade80; font-weight: 600;">✅ ${data.message}</span>`;
       } else if (data.online) {
         badge.innerHTML = `<span style="color: #fbbf24; font-weight: 500;">⚠️ ${data.message}</span>`;
       } else {
-        badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ ${data.error} ${data.hint ? `<br><small class="text-muted">${data.hint}</small>` : ''}</span>`;
+        badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ ${data.error || 'Errore'} ${data.hint ? `<br><small class="text-muted">${data.hint}</small>` : ''}</span>`;
       }
-    } catch (err) {
-      badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ Errore test: ${err.message}</span>`;
-    } finally {
-      btnTestWarp.disabled = false;
     }
-  });
+  } catch (err) {
+    if (badge) badge.innerHTML = `<span style="color: #f87171; font-weight: 500;">❌ Errore test: ${err.message}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.testWarpConnection = testWarpConnection;
+
+const btnTestWarp = document.getElementById('btn-test-warp');
+if (btnTestWarp) {
+  btnTestWarp.addEventListener('click', testWarpConnection);
 }
 
 // Init

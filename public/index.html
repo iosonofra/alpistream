@@ -519,6 +519,8 @@
                       🔍 Testa FFmpeg
                     </button>
                   </div>
+                </div>
+
                 <div class="card-divider" style="margin: 24px 0; border-top: 1px solid var(--border-color, #333);"></div>
                 <h4 style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
                   <span>🛡️</span> Proxy Cloudflare WARP SOCKS5 (Bypass Blocchi & CDN Protette)
@@ -540,7 +542,7 @@
                   <label for="setting-warp-host">Indirizzo Proxy SOCKS5 WARP (Host:Porta)</label>
                   <div style="display: flex; gap: 10px; align-items: center;">
                     <input type="text" id="setting-warp-host" class="form-control" placeholder="127.0.0.1:40000" style="flex: 1;">
-                    <button type="button" id="btn-test-warp" class="btn btn-secondary" style="white-space: nowrap; padding: 10px 16px;">
+                    <button type="button" id="btn-test-warp" class="btn btn-secondary" onclick="testWarpConnection()" style="white-space: nowrap; padding: 10px 16px;">
                       🔍 Testa Connessione WARP
                     </button>
                   </div>
@@ -666,11 +668,11 @@
   <!-- TOAST NOTIFICATION -->
   <div class="toast" id="toast-notification">Operazione completata</div>
 
-  <script src="js/player.js"></script>
-  <script src="js/events-view.js"></script>
-  <script src="js/groups.js"></script>
-  <script src="js/app.js"></script>
-  <script src="js/editor.js"></script>
-  <script src="js/epg-view.js"></script>
+  <script src="js/player.js?v=2.0"></script>
+  <script src="js/events-view.js?v=2.0"></script>
+  <script src="js/groups.js?v=2.0"></script>
+  <script src="js/app.js?v=2.0"></script>
+  <script src="js/editor.js?v=2.0"></script>
+  <script src="js/epg-view.js?v=2.0"></script>
 </body>
 </html>

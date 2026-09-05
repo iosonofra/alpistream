@@ -133,3 +133,18 @@ else
     echo "  o con: rc-service warp-svc status                   "
     echo "======================================================="
 fi
+
+# 8. Aggiornamento dipendenze NPM e riavvio MandraKodi Web Manager
+INSTALL_DIR="/opt/mandrakodi"
+if [ -d "$INSTALL_DIR" ]; then
+    cd "$INSTALL_DIR"
+    if [ -f "package.json" ]; then
+        echo "[+] Verifica dipendenze NPM per il supporto SOCKS5..."
+        npm install --production --no-audit >/dev/null 2>&1 || true
+    fi
+fi
+
+if rc-service mandrakodi status >/dev/null 2>&1; then
+    echo "[+] Riavvio servizio mandrakodi in corso per agganciare WARP..."
+    rc-service mandrakodi restart
+fi
