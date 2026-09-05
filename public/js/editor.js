@@ -67,6 +67,7 @@ async function loadChannels(page = 1) {
           ${ch.isCustom ? ' <span class="badge" style="background: rgba(88, 166, 255, 0.2); color: #58a6ff;">Custom</span>' : ''}
           ${ch.clearkey ? ' <span class="badge" style="background: rgba(138, 43, 226, 0.15); color: #c084fc;">DRM</span>' : ''}
           ${ch.useWarp ? ' <span class="badge" style="background: rgba(249, 115, 22, 0.18); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4);">🛡️ WARP</span>' : ''}
+          ${ch.mpdProxy ? ' <span class="badge" style="background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);">⚡ FFmpeg Copy</span>' : ''}
         </td>
         <td><span class="badge badge-group">${ch.group || 'Generale'}</span></td>
         <td>

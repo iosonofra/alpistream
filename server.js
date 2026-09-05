@@ -240,7 +240,7 @@ app.get('/api/channels', (req, res) => {
 // Modifica singolo canale
 app.put('/api/channels/:id', (req, res) => {
   const { id } = req.params;
-  const { title, group, logo, tvgId, enabled, useWarp } = req.body;
+  const { title, group, logo, tvgId, enabled, useWarp, mpdProxy, streamMode } = req.body;
 
   const channels = storage.getChannels();
   let found = false;
@@ -258,7 +258,9 @@ app.put('/api/channels/:id', (req, res) => {
         logo: logo !== undefined ? logo : ch.logo,
         tvgId: tvgId !== undefined ? tvgId : ch.tvgId,
         enabled: enabled !== undefined ? enabled : ch.enabled,
-        useWarp: useWarp !== undefined ? !!useWarp : ch.useWarp
+        useWarp: useWarp !== undefined ? !!useWarp : ch.useWarp,
+        mpdProxy: mpdProxy !== undefined ? !!mpdProxy : ch.mpdProxy,
+        streamMode: streamMode !== undefined ? streamMode : ch.streamMode
       };
     }
     return ch;
@@ -281,7 +283,9 @@ app.put('/api/channels/:id', (req, res) => {
         logo: logo !== undefined ? logo : ch.logo,
         tvgId: tvgId !== undefined ? tvgId : ch.tvgId,
         enabled: enabled !== undefined ? enabled : ch.enabled,
-        useWarp: useWarp !== undefined ? !!useWarp : ch.useWarp
+        useWarp: useWarp !== undefined ? !!useWarp : ch.useWarp,
+        mpdProxy: mpdProxy !== undefined ? !!mpdProxy : ch.mpdProxy,
+        streamMode: streamMode !== undefined ? streamMode : ch.streamMode
       };
     }
     return ch;
@@ -373,15 +377,43 @@ app.post('/api/epg/sources', (req, res) => {
 // -------------------------------------------------------------
 // 3. STREAMING PROXY PER WEB PLAYER (CORS & Referer Bypass)
 // -------------------------------------------------------------
-app.options(['/api/stream/proxy.m3u8', '/api/stream/proxy'], (req, res) => {
+app.options(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy'], (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.sendStatus(204);
 });
 
-app.get(['/api/stream/proxy.m3u8', '/api/stream/proxy'], async (req, res) => {
+app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy'], async (req, res) => {
   let { url, referer, origin, ua } = req.query;
+
+  // Risoluzione canale tramite ID se url non è specificato
+  if (!url && req.query.id) {
+    const cleanId = req.query.id.replace(/\.(mpd|m3u8|ts)$/i, '');
+    const channels = storage.getChannels();
+    const custom = storage.getCustomChannels();
+    const all = [...custom, ...channels];
+    let ch = all.find(c => c.id === cleanId || c.id === `${cleanId}_warp` || (c.id && c.id.startsWith(cleanId)));
+    if (ch) {
+      url = ch.url;
+      if (!referer && ch.headers && ch.headers.includes('Referer=')) {
+        const m = ch.headers.match(/Referer=([^&]+)/i);
+        if (m) referer = decodeURIComponent(m[1]);
+      }
+      if (!origin && ch.headers && ch.headers.includes('Origin=')) {
+        const m = ch.headers.match(/Origin=([^&]+)/i);
+        if (m) origin = decodeURIComponent(m[1]);
+      }
+      if (!ua && ch.headers && ch.headers.includes('User-Agent=')) {
+        const m = ch.headers.match(/User-Agent=([^&]+)/i);
+        if (m) ua = decodeURIComponent(m[1]);
+      }
+      if (ch.useWarp || (ch.title && /WARP/i.test(ch.title))) {
+        req.query.warp = '1';
+      }
+    }
+  }
+
   if (!url) return res.status(400).send('Missing stream URL');
 
   // Protezione anti-loop / unwrap: se url punta ricorsivamente al nostro stesso proxy, estrai il target effettivo
@@ -487,22 +519,63 @@ app.get(['/api/stream/proxy.m3u8', '/api/stream/proxy'], async (req, res) => {
           }
         }
 
-        // 2. Inietta o normalizza BaseURL assoluto per evitare che Shaka risolva segmenti relativi contro l'host locale
-        let remoteBaseDir = url;
-        if (remoteBaseDir.includes('?')) remoteBaseDir = remoteBaseDir.split('?')[0];
-        const lastSlash = remoteBaseDir.lastIndexOf('/');
-        if (lastSlash !== -1) {
-          remoteBaseDir = remoteBaseDir.substring(0, lastSlash + 1);
-        }
+        // 2. Inietta o normalizza BaseURL per i segmenti:
+        // Se useWarp è attivo, registra la sessione in dashSegmentSessions e inietta il BaseURL del proxy MandraKodi
+        // per consentire a Kodi (inputstream.adaptive), OTT Navigator, TiviMate e Web Player di scaricare i segmenti via WARP
+        if (useWarp) {
+          const sessionId = crypto.createHash('md5').update(url).digest('hex').substring(0, 12);
 
-        if (!xml.includes('<BaseURL')) {
-          xml = xml.replace(/(<MPD[^>]*>)/i, `$1\n    <BaseURL>${remoteBaseDir}</BaseURL>`);
-        } else {
-          // Se BaseURL è presente ma relativo (non http:// né https://)
-          xml = xml.replace(/<BaseURL\b[^>]*>(?!https?:\/\/)([\s\S]*?)<\/BaseURL>/gi, (m, inner) => {
-            const cleanRel = (inner || '').trim().replace(/^\.\//, '');
-            return `<BaseURL>${remoteBaseDir}${cleanRel}</BaseURL>`;
+          let cdnBase = url.substring(0, url.lastIndexOf('/') + 1);
+          const periodMatches = [...xml.matchAll(/<BaseURL>([^<]+)<\/BaseURL>/gi)];
+          if (periodMatches.length > 0) {
+            const lastBase = periodMatches[periodMatches.length - 1][1].trim();
+            try {
+              cdnBase = new URL(lastBase, url).href;
+            } catch (e) {
+              cdnBase = lastBase;
+            }
+          }
+
+          dashSegmentSessions.set(sessionId, {
+            cdnBaseUrl: cdnBase,
+            targetUrl: url,
+            useWarp: true,
+            headers: {
+              ...headers,
+              'User-Agent': ua || headers['User-Agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+              'Referer': referer || 'https://dazn.com/',
+              'Origin': origin || 'https://dazn.com'
+            },
+            createdAt: Date.now(),
+            lastAccess: Date.now()
           });
+
+          // Determina il BaseURL del proxy visibile dal client
+          const clientBaseUrl = `${req.protocol}://${req.get('host')}`;
+          const proxyBaseUrl = `${clientBaseUrl}/internal/dash-seg/${sessionId}/`;
+
+          // Rimuovi vecchi BaseURL e inietta proxyBaseUrl sia su MPD che Period
+          xml = xml.replace(/<BaseURL>[^<]+<\/BaseURL>/gi, '');
+          xml = xml.replace(/(<Period\b[^>]*>)/gi, `$1\n    <BaseURL>${proxyBaseUrl}</BaseURL>`);
+          xml = xml.replace(/(<MPD\b[^>]*>)/i, `$1\n  <BaseURL>${proxyBaseUrl}</BaseURL>`);
+        } else {
+          // Comportamento standard non-WARP: inietta BaseURL assoluto se assente
+          let remoteBaseDir = url;
+          if (remoteBaseDir.includes('?')) remoteBaseDir = remoteBaseDir.split('?')[0];
+          const lastSlash = remoteBaseDir.lastIndexOf('/');
+          if (lastSlash !== -1) {
+            remoteBaseDir = remoteBaseDir.substring(0, lastSlash + 1);
+          }
+
+          if (!xml.includes('<BaseURL')) {
+            xml = xml.replace(/(<MPD[^>]*>)/i, `$1\n    <BaseURL>${remoteBaseDir}</BaseURL>`);
+          } else {
+            // Se BaseURL è presente ma relativo (non http:// né https://)
+            xml = xml.replace(/<BaseURL\b[^>]*>(?!https?:\/\/)([\s\S]*?)<\/BaseURL>/gi, (m, inner) => {
+              const cleanRel = (inner || '').trim().replace(/^\.\//, '');
+              return `<BaseURL>${remoteBaseDir}${cleanRel}</BaseURL>`;
+            });
+          }
         }
 
         res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
@@ -1196,10 +1269,18 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     : channelIdOrUrl;
 
   // 1. Cerca canale per ID nel database se fornito
+  let ch = null;
   if (cleanId && !cleanId.startsWith('http')) {
     const channels = storage.getChannels();
     const custom = storage.getCustomChannels();
-    let ch = [...custom, ...channels].find(c => c.id === cleanId || c.id === channelIdOrUrl);
+    const all = [...custom, ...channels];
+    ch = all.find(c =>
+      c.id === cleanId ||
+      c.id === channelIdOrUrl ||
+      c.id === `${cleanId}_ffmpeg` ||
+      c.id === `${cleanId}_warp` ||
+      (c.id && c.id.startsWith(cleanId))
+    );
 
     // Controlla anche negli eventi se non trovato nei canali standard
     if (!ch && eventsManager) {
@@ -1207,7 +1288,13 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
         const evData = eventsManager.getEvents();
         if (evData && Array.isArray(evData.events)) {
           for (const ev of evData.events) {
-            const matched = [...(ev.officialChannels || []), ...(ev.directStreams || [])].find(c => c.id === cleanId || c.id === channelIdOrUrl);
+            const matched = [...(ev.officialChannels || []), ...(ev.directStreams || [])].find(c =>
+              c.id === cleanId ||
+              c.id === channelIdOrUrl ||
+              c.id === `${cleanId}_ffmpeg` ||
+              c.id === `${cleanId}_warp` ||
+              (c.id && c.id.startsWith(cleanId))
+            );
             if (matched) {
               ch = matched;
               break;
@@ -1222,6 +1309,9 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
       clearkey = ch.clearkey || (ch.kodi_props ? ch.kodi_props['inputstream.adaptive.license_key'] : '');
       headersStr = ch.headers || '';
       title = ch.customTitle || ch.title || title;
+      if (ch.useWarp || (ch.title && /WARP/i.test(ch.title))) {
+        req.query.warp = '1';
+      }
     }
   }
 

@@ -256,6 +256,17 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     return null;
   };
 
+  // Se il canale richiede esplicitamente il motore FFmpeg Stream Copy (Canale duplicato WARP + Proxy MPD FFmpeg)
+  if (ch.streamMode === 'ffmpeg_copy' || ch.mpdProxy === true || (ch.id && ch.id.endsWith('_ffmpeg'))) {
+    console.log('[Player] Canale configurato per motore FFmpeg Stream Copy diretto:', ch.title);
+    if (playerInstance) {
+      await cleanupPlayer(playerInstance);
+      playerInstance = null;
+    }
+    const mpegInstance = await tryMpdFfmpegFallback();
+    if (mpegInstance) return mpegInstance;
+  }
+
   if (window.shaka && shaka.Player.isBrowserSupported()) {
     try {
       const isShakaInstance = playerInstance && (playerInstance instanceof shaka.Player || (typeof playerInstance.getNetworkingEngine === 'function' && typeof playerInstance.configure === 'function'));

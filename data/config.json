@@ -9,6 +9,8 @@
   "cronEnabled": true,
   "maxWorkers": 25,
   "defaultUserAgent": "MandraKodi2@@2.2.1@@MandraKodi3@@MKD123",
+  "warpEnabled": true,
+  "warpHost": "127.0.0.1:40000",
   "activeSources": [
     "1",
     "3",

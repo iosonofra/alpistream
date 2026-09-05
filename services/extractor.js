@@ -178,6 +178,62 @@ function sanitizeGroupName(rawGroup) {
   return g || 'Generale';
 }
 
+function processWarpChannels(channelList) {
+  if (!Array.isArray(channelList)) return [];
+  const result = [];
+  for (const ch of channelList) {
+    if (!ch) continue;
+    const title = (ch.customTitle || ch.title || '').trim();
+    const isWarpInTitle = /WARP/i.test(title) || /WARP/i.test(ch.originalTitle || '');
+    const hasClearKey = ch.clearkey && !['0000', '0:0', '0'].includes(String(ch.clearkey).trim());
+    const isMpd = (ch.url && ch.url.includes('.mpd')) || (ch.kodi_props && ch.kodi_props['inputstream.adaptive.manifest_type'] === 'mpd');
+
+    // Se il canale ha già id terminante in _warp o _ffmpeg, non duplicare ulteriormente
+    if (ch.id && (ch.id.endsWith('_warp') || ch.id.endsWith('_ffmpeg'))) {
+      result.push(ch);
+      continue;
+    }
+
+    // Se ha WARP nel titolo ed è un flusso MPD o ClearKey
+    if (isWarpInTitle && (hasClearKey || isMpd)) {
+      // Pulisci dal titolo eventuali tag precedenti
+      const baseTitle = title
+        .replace(/\s*\[WARP(?:\s*SOCKS5|\s*\+\s*Proxy MPD FFmpeg)?\]/gi, '')
+        .replace(/\s*\((?:WARP\s*SOCKS5|WARP\s*\+\s*Proxy MPD FFmpeg)\)/gi, '')
+        .trim();
+
+      const baseId = ch.id ? ch.id.replace(/_(?:warp|ffmpeg|mpd)$/i, '') : `ch_${Buffer.from(baseTitle + (ch.url || '')).toString('base64').substring(0, 16)}`;
+
+      // 1. Canale con Proxy Cloudflare WARP SOCKS5 (client-side DRM / no FFmpeg)
+      const chWarp = {
+        ...ch,
+        id: `${baseId}_warp`,
+        title: `${baseTitle} [WARP SOCKS5]`,
+        originalTitle: ch.originalTitle || ch.title || baseTitle,
+        useWarp: true,
+        streamMode: 'warp_direct',
+        mpdProxy: false
+      };
+
+      // 2. Canale con Proxy Cloudflare WARP SOCKS5 + Proxy MPD ClearKey Centralizzato (FFmpeg Stream Copy)
+      const chFfmpeg = {
+        ...ch,
+        id: `${baseId}_ffmpeg`,
+        title: `${baseTitle} [WARP + Proxy MPD FFmpeg]`,
+        originalTitle: ch.originalTitle || ch.title || baseTitle,
+        useWarp: true,
+        streamMode: 'ffmpeg_copy',
+        mpdProxy: true
+      };
+
+      result.push(chWarp, chFfmpeg);
+    } else {
+      result.push(ch);
+    }
+  }
+  return result;
+}
+
 function xorDecrypt(dataB64, key = 'my_secret_key') {
   try {
     const data = Buffer.from(dataB64, 'base64');
@@ -754,6 +810,7 @@ class ExtractorEngine {
       }
     }));
 
+    this.channels = processWarpChannels(this.channels);
     this.log(`Estrazione completata! Totale canali estratti: ${this.channels.length}`);
     return this.channels;
   }
@@ -761,7 +818,7 @@ class ExtractorEngine {
   generateM3U(channels = [], customChannels = [], customGroupOrder = [], epgUrl = '/epg.xml', baseUrl = '', tokenParam = '') {
     let m3u = epgUrl ? `#EXTM3U url-tvg="${epgUrl}" x-tvg-url="${epgUrl}"\n` : '#EXTM3U\n';
 
-    const allChannels = [...customChannels, ...channels].filter(ch => ch.enabled !== false);
+    const allChannels = processWarpChannels([...customChannels, ...channels]).filter(ch => ch.enabled !== false);
 
     // 1. Raggruppa i canali per group-title normalizzato
     const groupsMap = new Map();
@@ -834,15 +891,19 @@ class ExtractorEngine {
           return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
         };
 
-        // Verifica se il canale deve usare il proxy Cloudflare WARP (per singolo canale o per gruppo)
-        const isWarpActive = !!(cfg && cfg.warpEnabled && (
+        // Verifica se il canale deve usare il proxy Cloudflare WARP (per singolo canale, modalità stream o gruppo)
+        const isWarpActive = !!(
           ch.useWarp === true ||
+          ch.streamMode === 'warp_direct' ||
+          ch.streamMode === 'ffmpeg_copy' ||
           (title && title.toUpperCase().includes('WARP')) ||
           (url && (url.includes('asn%3A13335') || url.includes('asn:13335') || url.includes('13335'))) ||
-          isGroupInWarp(groupName) ||
-          isGroupInWarp(ch.group) ||
-          isGroupInWarp(ch.customGroup)
-        ));
+          (cfg && cfg.warpEnabled && (
+            isGroupInWarp(groupName) ||
+            isGroupInWarp(ch.group) ||
+            isGroupInWarp(ch.customGroup)
+          ))
+        );
         const warpQueryParam = isWarpActive ? 'warp=1' : '';
 
         const appendParam = (uri, q) => {
@@ -859,17 +920,20 @@ class ExtractorEngine {
           }
         } else {
           const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
-          if (hasClearKey && baseUrl && (mpdProxyEnabled || isWarpActive) && ch.id) {
+          const isFfmpegCopy = ch.mpdProxy === true || ch.streamMode === 'ffmpeg_copy';
+          const isDirectWarp = ch.mpdProxy === false || ch.streamMode === 'warp_direct';
+
+          if (!isDirectWarp && hasClearKey && baseUrl && (mpdProxyEnabled || isFfmpegCopy) && ch.id) {
             isMpdProxy = true;
             let streamPath = `${baseUrl}/stream/mpd/${ch.id}.ts`;
             if (warpQueryParam) streamPath = appendParam(streamPath, warpQueryParam);
             finalUrl = `${streamPath}${tokenParam ? (streamPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
           } else if (isWarpActive && baseUrl && !url.includes('/stream/htsport/')) {
-            // Se WARP è attivo su questo gruppo/canale ma non è MPD con ClearKey né HTSport,
-            // instrada il flusso HLS/HTTP tramite il proxy CORS di MandraKodi per farlo passare da WARP
+            // Se WARP è attivo su questo gruppo/canale (inclusa la variante WARP SOCKS5 diretta)
             const isM3u8 = url.includes('.m3u8') || (kodiProps && kodiProps['inputstream.adaptive.manifest_type'] === 'hls');
-            let streamPath = isM3u8 ? `${baseUrl}/api/stream/proxy.m3u8` : `${baseUrl}/api/stream/proxy`;
-            const qParams = new URLSearchParams({ url, warp: '1' });
+            const isMpd = url.includes('.mpd') || (kodiProps && kodiProps['inputstream.adaptive.manifest_type'] === 'mpd');
+            let streamPath = isMpd ? `${baseUrl}/api/stream/proxy.mpd` : (isM3u8 ? `${baseUrl}/api/stream/proxy.m3u8` : `${baseUrl}/api/stream/proxy`);
+            const qParams = new URLSearchParams({ id: ch.id, url, warp: '1' });
             if (headers) qParams.set('headers', headers);
             finalUrl = `${streamPath}?${qParams.toString()}${tokenParam ? '&' + tokenParam.slice(1) : ''}`;
           }
@@ -998,5 +1062,6 @@ module.exports = {
   CATALOG_SECTIONS,
   NativeResolver,
   ExtractorEngine,
-  sanitizeGroupName
+  sanitizeGroupName,
+  processWarpChannels
 };

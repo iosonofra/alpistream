@@ -745,8 +745,8 @@
     "tvgId": ""
   },
   {
-    "id": "ch_MTk6MDAgUmVhbCBC",
-    "title": "19:00 Real Betis - Real Madrid (ITA - MPD - WARP)",
+    "id": "ch_MTk6MDAgUmVhbCBC_warp",
+    "title": "19:00 Real Betis - Real Madrid (ITA - MPD - WARP) [WARP SOCKS5]",
     "url": "https://dca-fs-live-dazn-cdn.dazn.com/@eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODg2MzM2MTIsImtpZCI6IjIwMjIxMTIzIiwicGF0aF9kIjoxLCJwYXRoIjoiYmMwZDZhYzQ1Y2Y5MjE5NDFmY2Y3Yzc3NjNjMzAxZmYyZGIwNGYzYyIsInNzaWQiOiI5ODI3YzNjZjkxZDMiLCJwcm90byI6ImRhc2giLCJnZW8iOiJpdCIsImFzbiI6WyIxMzMzNSJdLCJpYXQiOjE3ODg1NDcyMTJ9.kKDVWMnK7ePAeXP3pcMD0wJc90Aucttpd_vOc3g-ZHg/7jlf3993rs4315tzagnp5c3sx/web/stream.mpd?channel=3958&mta=it&outlet=dazn-italy&plang=it",
     "logo": "https://www.hotel-desalpes.it/wp-content/uploads/2017/11/lastminute.png",
     "group": "SPORT - Last Minute - LALIGA EA SPORTS",
@@ -764,11 +764,39 @@
     "source": "resolver",
     "originalTitle": "19:00 Real Betis - Real Madrid (ITA - MPD - WARP)",
     "originalGroup": "SPORT - Last Minute - LALIGA EA SPORTS",
-    "tvgId": ""
+    "tvgId": "",
+    "useWarp": true,
+    "streamMode": "warp_direct",
+    "mpdProxy": false
   },
   {
-    "id": "ch_MTY6NTYgRmFudGFj",
-    "title": "16:56 Fantacalcio Night | Genoa - Como (ITA - MPD - WARP)",
+    "id": "ch_MTk6MDAgUmVhbCBC_ffmpeg",
+    "title": "19:00 Real Betis - Real Madrid (ITA - MPD - WARP) [WARP + Proxy MPD FFmpeg]",
+    "url": "https://dca-fs-live-dazn-cdn.dazn.com/@eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODg2MzM2MTIsImtpZCI6IjIwMjIxMTIzIiwicGF0aF9kIjoxLCJwYXRoIjoiYmMwZDZhYzQ1Y2Y5MjE5NDFmY2Y3Yzc3NjNjMzAxZmYyZGIwNGYzYyIsInNzaWQiOiI5ODI3YzNjZjkxZDMiLCJwcm90byI6ImRhc2giLCJnZW8iOiJpdCIsImFzbiI6WyIxMzMzNSJdLCJpYXQiOjE3ODg1NDcyMTJ9.kKDVWMnK7ePAeXP3pcMD0wJc90Aucttpd_vOc3g-ZHg/7jlf3993rs4315tzagnp5c3sx/web/stream.mpd?channel=3958&mta=it&outlet=dazn-italy&plang=it",
+    "logo": "https://www.hotel-desalpes.it/wp-content/uploads/2017/11/lastminute.png",
+    "group": "SPORT - Last Minute - LALIGA EA SPORTS",
+    "kodi_props": {
+      "inputstream": "inputstream.adaptive",
+      "inputstream.adaptive.manifest_type": "mpd",
+      "inputstream.adaptive.stream_headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+      "inputstream.adaptive.manifest_headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+      "inputstream.adaptive.license_type": "org.w3.clearkey",
+      "inputstream.adaptive.license_key": "3fcbbc917d9f5dd4aa8c534ee749e47e:cf773c5e116cb3039fa708a45dd83f88"
+    },
+    "clearkey": "3fcbbc917d9f5dd4aa8c534ee749e47e:cf773c5e116cb3039fa708a45dd83f88",
+    "headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+    "enabled": true,
+    "source": "resolver",
+    "originalTitle": "19:00 Real Betis - Real Madrid (ITA - MPD - WARP)",
+    "originalGroup": "SPORT - Last Minute - LALIGA EA SPORTS",
+    "tvgId": "",
+    "useWarp": true,
+    "streamMode": "ffmpeg_copy",
+    "mpdProxy": true
+  },
+  {
+    "id": "ch_MTY6NTYgRmFudGFj_warp",
+    "title": "16:56 Fantacalcio Night | Genoa - Como (ITA - MPD - WARP) [WARP SOCKS5]",
     "url": "https://dca-fs-live-dazn-cdn.dazn.com/@eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODg2Mjg1MDcsImtpZCI6IjIwMjIxMTIzIiwicGF0aF9kIjoxLCJwYXRoIjoiNDQyOGIzZjAyNTMzNDVkNTFhZjQzNmMyYmNkYWRlZTI4YWQyMjI4YyIsInNzaWQiOiI5ODI3YzNjZjkxZDMiLCJwcm90byI6ImRhc2giLCJnZW8iOiJpdCIsImFzbiI6WyIxMzMzNSJdLCJpYXQiOjE3ODg1NDIxMDd9.yipnYfU9ssywF4E3pvaLF-7Y7bny1lLN_UWy1RicJBI/19jkiltorm8xp1dqygivhg5h2q/web/stream.mpd?channel=1544&mta=it&outlet=dazn-italy&plang=it",
     "logo": "https://www.hotel-desalpes.it/wp-content/uploads/2017/11/lastminute.png",
     "group": "SPORT - Last Minute - SERIE A ENILIVE",
@@ -786,11 +814,39 @@
     "source": "resolver",
     "originalTitle": "16:56 Fantacalcio Night | Genoa - Como (ITA - MPD - WARP)",
     "originalGroup": "SPORT - Last Minute - SERIE A ENILIVE",
-    "tvgId": ""
+    "tvgId": "",
+    "useWarp": true,
+    "streamMode": "warp_direct",
+    "mpdProxy": false
   },
   {
-    "id": "ch_MTc6MDAgRmFudGFj",
-    "title": "17:00 Fantacalcio Night | Giornata 3 (ITA - MPD - WARP)",
+    "id": "ch_MTY6NTYgRmFudGFj_ffmpeg",
+    "title": "16:56 Fantacalcio Night | Genoa - Como (ITA - MPD - WARP) [WARP + Proxy MPD FFmpeg]",
+    "url": "https://dca-fs-live-dazn-cdn.dazn.com/@eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODg2Mjg1MDcsImtpZCI6IjIwMjIxMTIzIiwicGF0aF9kIjoxLCJwYXRoIjoiNDQyOGIzZjAyNTMzNDVkNTFhZjQzNmMyYmNkYWRlZTI4YWQyMjI4YyIsInNzaWQiOiI5ODI3YzNjZjkxZDMiLCJwcm90byI6ImRhc2giLCJnZW8iOiJpdCIsImFzbiI6WyIxMzMzNSJdLCJpYXQiOjE3ODg1NDIxMDd9.yipnYfU9ssywF4E3pvaLF-7Y7bny1lLN_UWy1RicJBI/19jkiltorm8xp1dqygivhg5h2q/web/stream.mpd?channel=1544&mta=it&outlet=dazn-italy&plang=it",
+    "logo": "https://www.hotel-desalpes.it/wp-content/uploads/2017/11/lastminute.png",
+    "group": "SPORT - Last Minute - SERIE A ENILIVE",
+    "kodi_props": {
+      "inputstream": "inputstream.adaptive",
+      "inputstream.adaptive.manifest_type": "mpd",
+      "inputstream.adaptive.stream_headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+      "inputstream.adaptive.manifest_headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+      "inputstream.adaptive.license_type": "org.w3.clearkey",
+      "inputstream.adaptive.license_key": "b33eddd50eb95231bb48e54dadae5d84:14b2411491d09e478fb1ea0ee5548f0e"
+    },
+    "clearkey": "b33eddd50eb95231bb48e54dadae5d84:14b2411491d09e478fb1ea0ee5548f0e",
+    "headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+    "enabled": true,
+    "source": "resolver",
+    "originalTitle": "16:56 Fantacalcio Night | Genoa - Como (ITA - MPD - WARP)",
+    "originalGroup": "SPORT - Last Minute - SERIE A ENILIVE",
+    "tvgId": "",
+    "useWarp": true,
+    "streamMode": "ffmpeg_copy",
+    "mpdProxy": true
+  },
+  {
+    "id": "ch_MTc6MDAgRmFudGFj_warp",
+    "title": "17:00 Fantacalcio Night | Giornata 3 (ITA - MPD - WARP) [WARP SOCKS5]",
     "url": "https://dca-de-livedazn.daznedge.net/@tend%3A1788628508~proto%3Adash~geo%3AIT~asn%3A13335~path%3A1_1_32e0a040f10a3aec51d4572813924061b5c72f5e7aa2fd9cb2d90e2ca5244aea~id%3A9827c3cf91d3~tk3%3Aeb14ea2c813e96f3321e8522e6e22299115bc5726d58fce594db3e81bb693842/1saoimu9zcuzn1rl0blie1n6wt/web/stream.mpd?channel=5663&mta=it&outlet=dazn-italy&plang=it",
     "logo": "https://www.hotel-desalpes.it/wp-content/uploads/2017/11/lastminute.png",
     "group": "SPORT - Last Minute - SERIE A ENILIVE",
@@ -808,7 +864,35 @@
     "source": "resolver",
     "originalTitle": "17:00 Fantacalcio Night | Giornata 3 (ITA - MPD - WARP)",
     "originalGroup": "SPORT - Last Minute - SERIE A ENILIVE",
-    "tvgId": ""
+    "tvgId": "",
+    "useWarp": true,
+    "streamMode": "warp_direct",
+    "mpdProxy": false
+  },
+  {
+    "id": "ch_MTc6MDAgRmFudGFj_ffmpeg",
+    "title": "17:00 Fantacalcio Night | Giornata 3 (ITA - MPD - WARP) [WARP + Proxy MPD FFmpeg]",
+    "url": "https://dca-de-livedazn.daznedge.net/@tend%3A1788628508~proto%3Adash~geo%3AIT~asn%3A13335~path%3A1_1_32e0a040f10a3aec51d4572813924061b5c72f5e7aa2fd9cb2d90e2ca5244aea~id%3A9827c3cf91d3~tk3%3Aeb14ea2c813e96f3321e8522e6e22299115bc5726d58fce594db3e81bb693842/1saoimu9zcuzn1rl0blie1n6wt/web/stream.mpd?channel=5663&mta=it&outlet=dazn-italy&plang=it",
+    "logo": "https://www.hotel-desalpes.it/wp-content/uploads/2017/11/lastminute.png",
+    "group": "SPORT - Last Minute - SERIE A ENILIVE",
+    "kodi_props": {
+      "inputstream": "inputstream.adaptive",
+      "inputstream.adaptive.manifest_type": "mpd",
+      "inputstream.adaptive.stream_headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+      "inputstream.adaptive.manifest_headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+      "inputstream.adaptive.license_type": "org.w3.clearkey",
+      "inputstream.adaptive.license_key": "912ef694f1d55f2db2faa8bd2e80b54e:010233f12b5c453a9c744e8a6d936acd"
+    },
+    "clearkey": "912ef694f1d55f2db2faa8bd2e80b54e:010233f12b5c453a9c744e8a6d936acd",
+    "headers": "User-Agent=Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.41 (KHTML, like Gecko) Large Screen Safari/537.41 LG Browser/7.00.00(LGE; WEBOS1; 05.06.10; 1); webOS.TV-2014; LG NetCast.TV-2013 Compatible (LGE, WEBOS1, wireless)&Referer=https://www.dazn.com/&Origin=https://www.dazn.com",
+    "enabled": true,
+    "source": "resolver",
+    "originalTitle": "17:00 Fantacalcio Night | Giornata 3 (ITA - MPD - WARP)",
+    "originalGroup": "SPORT - Last Minute - SERIE A ENILIVE",
+    "tvgId": "",
+    "useWarp": true,
+    "streamMode": "ffmpeg_copy",
+    "mpdProxy": true
   },
   {
     "id": "ch_Q0ggMDQgW0VMRVZF",
