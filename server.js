@@ -794,26 +794,19 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     return;
   }
 
-  // Avvio nuovo processo FFmpeg con parametri anti-buffering e bassa latenza
+  // Avvio nuovo processo FFmpeg con parametri anti-buffering e stabilizzazione A/V
   console.log(`[MPD ClearKey Proxy] Avvio nuovo processo FFmpeg per "${title}" (Key: ${keyHex.substring(0, 8)}...)...`);
 
   const ffmpegArgs = [
     '-loglevel', 'warning',
 
     // Ottimizzazioni di rete HTTP / DASH
-    '-multiple_requests', '1',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_on_network_error', '1',
-    '-reconnect_on_http_error', '4xx,5xx',
-    '-reconnect_delay_max', '3',
+    '-reconnect_delay_max', '2',
     '-rw_timeout', '15000000',
     '-tcp_nodelay', '1',
-
-    // Limiti di probing per avvio immediato
-    '-probesize', '1000000',
-    '-analyzeduration', '1500000',
-    '-fflags', '+genpts+discardcorrupt',
   ];
 
   if (formattedHeaders) {
@@ -824,8 +817,16 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     '-cenc_decryption_key', keyHex,
     '-i', targetUrl,
 
-    // Remuxing MPEG-TS diretto senza re-encoding
-    '-c', 'copy',
+    // Video: stream copy con iniezione SPS/PPS su ogni keyframe (elimina macroblock/glitch)
+    '-c:v', 'copy',
+    '-bsf:v', 'h264_mp4toannexb',
+
+    // Audio: normalizzazione timeline continua (elimina i blocchi di 1s sui cambi segmento DASH)
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-af', 'aresample=async=1',
+
+    // Parametri di muxing MPEG-TS stabili per Smart TV e VLC
     '-max_muxing_queue_size', '4096',
     '-f', 'mpegts',
     '-mpegts_flags', '+resend_headers',
@@ -852,42 +853,13 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     listeners: new Set([res]),
     recentChunks: [],
     recentBytes: 0,
-    maxRecentBytes: 1024 * 1024, // 1MB buffer circolare
+    maxRecentBytes: 1024 * 1024, // 1MB buffer circolare per client concorrenti
     closeTimer: null,
-    initialBurstFlushed: false,
-    pendingBurst: [],
-    pendingBytes: 0,
-    burstThreshold: 512 * 1024, // 512KB burst iniziale
-    burstTimer: null,
     startedAt: Date.now()
   };
 
-  // Timer di sicurezza per il primo burst (massimo 800ms)
-  streamState.burstTimer = setTimeout(() => {
-    flushPendingBurst(streamState);
-  }, 800);
-
-  function flushPendingBurst(state) {
-    if (state.initialBurstFlushed) return;
-    state.initialBurstFlushed = true;
-    if (state.burstTimer) clearTimeout(state.burstTimer);
-
-    if (state.pendingBurst.length > 0) {
-      const combined = Buffer.concat(state.pendingBurst, state.pendingBytes);
-      state.pendingBurst = [];
-      state.pendingBytes = 0;
-      for (const r of state.listeners) {
-        try {
-          if (!r.writableEnded && !r.destroyed) r.write(combined);
-        } catch (e) {
-          state.listeners.delete(r);
-        }
-      }
-    }
-  }
-
   ffmpegProc.stdout.on('data', (chunk) => {
-    // Aggiorna cache circolare
+    // Aggiorna cache circolare per i client successivi
     streamState.recentChunks.push(chunk);
     streamState.recentBytes += chunk.length;
     while (streamState.recentBytes > streamState.maxRecentBytes && streamState.recentChunks.length > 1) {
@@ -895,17 +867,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
       streamState.recentBytes -= rm.length;
     }
 
-    // Se il burst iniziale non è ancora uscito, accumula fino a burstThreshold
-    if (!streamState.initialBurstFlushed) {
-      streamState.pendingBurst.push(chunk);
-      streamState.pendingBytes += chunk.length;
-      if (streamState.pendingBytes >= streamState.burstThreshold) {
-        flushPendingBurst(streamState);
-      }
-      return;
-    }
-
-    // Invia direttamente a tutti i listener attivi
+    // Invia immediatamente lo stream a tutti i client attivi
     for (const r of streamState.listeners) {
       try {
         if (!r.writableEnded && !r.destroyed) {
@@ -936,7 +898,6 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     if (code !== 0 && code !== 255 && code !== null) {
       console.warn(`[MPD ClearKey Proxy] FFmpeg terminato con codice ${code}: ${errLog.trim()}`);
     }
-    if (streamState.burstTimer) clearTimeout(streamState.burstTimer);
     if (streamState.closeTimer) clearTimeout(streamState.closeTimer);
     for (const r of streamState.listeners) {
       try {
@@ -963,7 +924,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
 }
 
 // 1. Endpoint MPD Proxy per client IPTV / Kodi / VLC / Smart TV
-app.get(['/stream/mpd/:id', '/stream/mpd'], verifyToken, (req, res) => {
+app.get(['/stream/mpd/:id', '/stream/mpd', '/stream/clearkey/:id', '/stream/clearkey'], (req, res) => {
   const channelId = req.params.id || req.query.id || req.query.url;
   const key = req.query.key || req.query.clearkey;
   const headers = req.query.headers;
