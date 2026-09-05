@@ -662,6 +662,9 @@ app.get('/api/acestream/status', (req, res) => {
 // 3c. PROXY HTTP CENTRALIZZATO MPD CLEARKEY (FFmpeg Stream Copy)
 // -------------------------------------------------------------
 
+// Mappa delle sessioni proxy MPD attive condivise (Anti-Buffering & Multi-Client)
+const activeMpdStreams = new Map();
+
 function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   let targetUrl = '';
   let clearkey = '';
@@ -717,6 +720,11 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     return res.status(400).send(`Chiave ClearKey non valida o mancante (richiesti 32 caratteri esadecimali). Trovata: ${keyHex || 'nessuna'}`);
   }
 
+  // Chiave identificativa univoca per la sessione stream
+  const streamKey = (channelIdOrUrl && !channelIdOrUrl.startsWith('http'))
+    ? channelIdOrUrl
+    : `${targetUrl}#${keyHex}`;
+
   // Formatta headers per FFmpeg (-headers "Key: Value\r\n...")
   let formattedHeaders = '';
   if (headersStr) {
@@ -733,33 +741,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     }
   }
 
-  console.log(`[MPD ClearKey Proxy] Avvio streaming decifrato per "${title}" (Key: ${keyHex.substring(0, 8)}...)...`);
-
-  const ffmpegArgs = [
-    '-loglevel', 'warning',
-    '-reconnect', '1',
-    '-reconnect_streamed', '1',
-    '-reconnect_delay_max', '5'
-  ];
-
-  if (formattedHeaders) {
-    ffmpegArgs.push('-headers', formattedHeaders);
-  }
-
-  ffmpegArgs.push('-cenc_decryption_key', keyHex);
-  ffmpegArgs.push('-i', targetUrl);
-  ffmpegArgs.push('-c', 'copy');
-  ffmpegArgs.push('-f', 'mpegts');
-  ffmpegArgs.push('pipe:1');
-
-  let ffmpegProc;
-  try {
-    ffmpegProc = spawn('ffmpeg', ffmpegArgs);
-  } catch (err) {
-    console.error(`[MPD ClearKey Proxy] Impossibile avviare FFmpeg: ${err.message}`);
-    return res.status(500).send(`Errore avvio FFmpeg: ${err.message}`);
-  }
-
+  // Scrivi header di risposta HTTP MPEG-TS
   res.writeHead(200, {
     'Content-Type': 'video/mp2t',
     'Access-Control-Allow-Origin': '*',
@@ -768,10 +750,174 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache',
     'Expires': '0',
-    'Connection': 'keep-alive'
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
   });
 
-  ffmpegProc.stdout.pipe(res);
+  // Se esiste già uno stream attivo per questo canale, riutilizzalo
+  if (activeMpdStreams.has(streamKey)) {
+    const existing = activeMpdStreams.get(streamKey);
+    if (existing.closeTimer) {
+      clearTimeout(existing.closeTimer);
+      existing.closeTimer = null;
+      console.log(`[MPD ClearKey Proxy] Riattivato stream esistente per "${title}" (timer annullato).`);
+    }
+
+    // Invia il burst circolare recente (gli ultimi 512KB-768KB) allineato a 188 byte
+    if (existing.recentBytes > 0 && existing.recentChunks.length > 0) {
+      try {
+        const fullBuf = Buffer.concat(existing.recentChunks, existing.recentBytes);
+        const burstTarget = 768 * 1024;
+        let slice = fullBuf.length > burstTarget ? fullBuf.subarray(fullBuf.length - burstTarget) : fullBuf;
+        const remainder = slice.length % 188;
+        if (remainder > 0) slice = slice.subarray(remainder);
+        res.write(slice);
+      } catch (e) {}
+    }
+
+    existing.listeners.add(res);
+    console.log(`[MPD ClearKey Proxy] Client agganciato a "${title}" (Listener attivi: ${existing.listeners.size})`);
+
+    req.on('close', () => {
+      existing.listeners.delete(res);
+      console.log(`[MPD ClearKey Proxy] Client disconnesso da "${title}" (Listener rimanenti: ${existing.listeners.size})`);
+      if (existing.listeners.size === 0) {
+        console.log(`[MPD ClearKey Proxy] Avvio timer grazia (3s) prima della chiusura per "${title}"`);
+        existing.closeTimer = setTimeout(() => {
+          console.log(`[MPD ClearKey Proxy] Timer scaduto: terminazione processo FFmpeg per "${title}"`);
+          try { existing.proc.kill('SIGKILL'); } catch (e) {}
+          activeMpdStreams.delete(streamKey);
+        }, 3000);
+      }
+    });
+
+    return;
+  }
+
+  // Avvio nuovo processo FFmpeg con parametri anti-buffering e bassa latenza
+  console.log(`[MPD ClearKey Proxy] Avvio nuovo processo FFmpeg per "${title}" (Key: ${keyHex.substring(0, 8)}...)...`);
+
+  const ffmpegArgs = [
+    '-loglevel', 'warning',
+
+    // Ottimizzazioni di rete HTTP / DASH
+    '-multiple_requests', '1',
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_on_network_error', '1',
+    '-reconnect_on_http_error', '4xx,5xx',
+    '-reconnect_delay_max', '3',
+    '-rw_timeout', '15000000',
+    '-tcp_nodelay', '1',
+
+    // Limiti di probing per avvio immediato
+    '-probesize', '1000000',
+    '-analyzeduration', '1500000',
+    '-fflags', '+genpts+discardcorrupt',
+  ];
+
+  if (formattedHeaders) {
+    ffmpegArgs.push('-headers', formattedHeaders);
+  }
+
+  ffmpegArgs.push(
+    '-cenc_decryption_key', keyHex,
+    '-i', targetUrl,
+
+    // Remuxing MPEG-TS diretto senza re-encoding
+    '-c', 'copy',
+    '-max_muxing_queue_size', '4096',
+    '-f', 'mpegts',
+    '-mpegts_flags', '+resend_headers',
+    '-pcr_period', '20',
+    'pipe:1'
+  );
+
+  let ffmpegProc;
+  try {
+    ffmpegProc = spawn('ffmpeg', ffmpegArgs);
+  } catch (err) {
+    console.error(`[MPD ClearKey Proxy] Impossibile avviare FFmpeg: ${err.message}`);
+    if (!res.headersSent) {
+      return res.status(500).send(`Errore avvio FFmpeg: ${err.message}`);
+    } else {
+      return res.end();
+    }
+  }
+
+  const streamState = {
+    key: streamKey,
+    title,
+    proc: ffmpegProc,
+    listeners: new Set([res]),
+    recentChunks: [],
+    recentBytes: 0,
+    maxRecentBytes: 1024 * 1024, // 1MB buffer circolare
+    closeTimer: null,
+    initialBurstFlushed: false,
+    pendingBurst: [],
+    pendingBytes: 0,
+    burstThreshold: 512 * 1024, // 512KB burst iniziale
+    burstTimer: null,
+    startedAt: Date.now()
+  };
+
+  // Timer di sicurezza per il primo burst (massimo 800ms)
+  streamState.burstTimer = setTimeout(() => {
+    flushPendingBurst(streamState);
+  }, 800);
+
+  function flushPendingBurst(state) {
+    if (state.initialBurstFlushed) return;
+    state.initialBurstFlushed = true;
+    if (state.burstTimer) clearTimeout(state.burstTimer);
+
+    if (state.pendingBurst.length > 0) {
+      const combined = Buffer.concat(state.pendingBurst, state.pendingBytes);
+      state.pendingBurst = [];
+      state.pendingBytes = 0;
+      for (const r of state.listeners) {
+        try {
+          if (!r.writableEnded && !r.destroyed) r.write(combined);
+        } catch (e) {
+          state.listeners.delete(r);
+        }
+      }
+    }
+  }
+
+  ffmpegProc.stdout.on('data', (chunk) => {
+    // Aggiorna cache circolare
+    streamState.recentChunks.push(chunk);
+    streamState.recentBytes += chunk.length;
+    while (streamState.recentBytes > streamState.maxRecentBytes && streamState.recentChunks.length > 1) {
+      const rm = streamState.recentChunks.shift();
+      streamState.recentBytes -= rm.length;
+    }
+
+    // Se il burst iniziale non è ancora uscito, accumula fino a burstThreshold
+    if (!streamState.initialBurstFlushed) {
+      streamState.pendingBurst.push(chunk);
+      streamState.pendingBytes += chunk.length;
+      if (streamState.pendingBytes >= streamState.burstThreshold) {
+        flushPendingBurst(streamState);
+      }
+      return;
+    }
+
+    // Invia direttamente a tutti i listener attivi
+    for (const r of streamState.listeners) {
+      try {
+        if (!r.writableEnded && !r.destroyed) {
+          r.write(chunk);
+        } else {
+          streamState.listeners.delete(r);
+        }
+      } catch (err) {
+        streamState.listeners.delete(r);
+      }
+    }
+  });
 
   let errLog = '';
   ffmpegProc.stderr.on('data', (data) => {
@@ -787,24 +933,33 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   });
 
   ffmpegProc.on('close', (code) => {
-    if (code !== 0 && code !== 255) {
+    if (code !== 0 && code !== 255 && code !== null) {
       console.warn(`[MPD ClearKey Proxy] FFmpeg terminato con codice ${code}: ${errLog.trim()}`);
     }
-    if (!res.writableEnded) {
-      res.end();
+    if (streamState.burstTimer) clearTimeout(streamState.burstTimer);
+    if (streamState.closeTimer) clearTimeout(streamState.closeTimer);
+    for (const r of streamState.listeners) {
+      try {
+        if (!r.writableEnded) r.end();
+      } catch (e) {}
+    }
+    activeMpdStreams.delete(streamKey);
+  });
+
+  req.on('close', () => {
+    streamState.listeners.delete(res);
+    console.log(`[MPD ClearKey Proxy] Client disconnesso da "${title}" (Listener rimanenti: ${streamState.listeners.size})`);
+    if (streamState.listeners.size === 0) {
+      console.log(`[MPD ClearKey Proxy] Avvio timer grazia (3s) prima di chiudere FFmpeg per "${title}"`);
+      streamState.closeTimer = setTimeout(() => {
+        console.log(`[MPD ClearKey Proxy] Timer scaduto. Terminazione processo FFmpeg per "${title}"`);
+        try { streamState.proc.kill('SIGKILL'); } catch (e) {}
+        activeMpdStreams.delete(streamKey);
+      }, 3000);
     }
   });
 
-  let killed = false;
-  req.on('close', () => {
-    if (!killed && ffmpegProc) {
-      killed = true;
-      console.log(`[MPD ClearKey Proxy] Client disconnesso per "${title}". Terminazione FFmpeg.`);
-      try {
-        ffmpegProc.kill('SIGKILL');
-      } catch (e) {}
-    }
-  });
+  activeMpdStreams.set(streamKey, streamState);
 }
 
 // 1. Endpoint MPD Proxy per client IPTV / Kodi / VLC / Smart TV
@@ -827,11 +982,22 @@ app.get('/api/ffmpeg/status', (req, res) => {
       });
     }
     const firstLine = stdout.split('\n')[0] || 'FFmpeg installato';
+    const activeStreams = [];
+    for (const [k, s] of activeMpdStreams.entries()) {
+      activeStreams.push({
+        id: k,
+        title: s.title,
+        listeners: s.listeners.size,
+        uptimeSeconds: Math.round((Date.now() - s.startedAt) / 1000)
+      });
+    }
     res.json({
       success: true,
       installed: true,
       version: firstLine.trim(),
-      message: firstLine.trim()
+      message: firstLine.trim(),
+      activeProxyStreams: activeStreams.length,
+      streams: activeStreams
     });
   });
 });

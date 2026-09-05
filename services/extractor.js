@@ -831,6 +831,7 @@ class ExtractorEngine {
         if (isAce || isMpdProxy) {
           // Stream MPEG-TS diretto fornito dal proxy MandraKodi per massima compatibilità
           m3u += `#KODIPROP:mimetype=video/mp2t\n`;
+          m3u += `#EXTVLCOPT:network-caching=2000\n`;
         } else if (kodiProps && Object.keys(kodiProps).length > 0) {
           for (const [k, v] of Object.entries(kodiProps)) {
             // Salta chiavi fittizie (0000, 0:0, 0)
