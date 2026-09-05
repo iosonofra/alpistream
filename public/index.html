@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MandraKodi Web Manager & IPTV Hub</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+  <!-- Shaka Player, Hls.js & mpegts.js CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/controls.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.ui.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-text">
+          <h2>MandraKodi</h2>
+          <span>Web Hub & IPTV</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="dashboard">
+          <span class="icon">📊</span> Dashboard
+        </button>
+        <button class="nav-item" data-tab="events">
+          <span class="icon">⚽</span> Eventi Live (Guida TV)
+        </button>
+        <button class="nav-item" data-tab="livetv">
+          <span class="icon">📺</span> Web Player (Live TV)
+        </button>
+        <button class="nav-item" data-tab="sources">
+          <span class="icon">🌐</span> Sorgenti Liste
+        </button>
+        <button class="nav-item" data-tab="editor">
+          <span class="icon">✏️</span> Editor Canali
+        </button>
+        <button class="nav-item" data-tab="groups">
+          <span class="icon">📑</span> Ordine Gruppi
+        </button>
+        <button class="nav-item" data-tab="custom">
+          <span class="icon">➕</span> Canali Custom
+        </button>
+        <button class="nav-item" data-tab="epg">
+          <span class="icon">📅</span> Guida EPG (XMLTV)
+        </button>
+        <button class="nav-item" data-tab="settings">
+          <span class="icon">⚙️</span> Impostazioni
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-indicator">
+          <span class="dot online" id="status-dot"></span>
+          <span id="status-text">Server Online</span>
+        </div>
+        <small id="app-version">v1.1.0 (Proxmox Alpine)</small>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <!-- HEADER -->
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle">Panoramica del server e link di streaming remoti</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-primary" id="btn-quick-extract">
+            <span class="btn-icon">🚀</span> Estrai Playlist Ora
+          </button>
+        </div>
+      </header>
+
+      <div class="content-area">
+        <!-- 1. TAB: DASHBOARD -->
+        <section id="tab-dashboard" class="tab-pane active">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon purple">📺</div>
+              <div class="stat-info">
+                <span class="stat-label">Canali Attivi</span>
+                <h3 class="stat-value" id="stat-enabled-channels">0</h3>
+                <small id="stat-total-channels">su 0 canali totali</small>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon blue">🌐</div>
+              <div class="stat-info">
+                <span class="stat-label">Sorgenti Selezionate</span>
+                <h3 class="stat-value" id="stat-active-sources">0</h3>
+                <small>liste MandraKodi attive</small>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon green">⏰</div>
+              <div class="stat-info">
+                <span class="stat-label">Aggiornamento Automatico</span>
+                <h3 class="stat-value" id="stat-cron-schedule">Ogni 4 ore</h3>
+                <small id="stat-last-extraction">Ultimo: Mai</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- REMOTE URLS BANNER -->
+          <div class="card remote-links-card">
+            <div class="card-header">
+              <h3>📡 Link Remoti per IPTV Client (TiviMate, Kodi, OTT Navigator, VLC)</h3>
+            </div>
+            <div class="card-body">
+              <div class="link-box">
+                <div class="link-info">
+                  <strong>Playlist M3U:</strong>
+                  <code id="link-m3u-url">http://.../playlist.m3u</code>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('link-m3u-url')">📋 Copia Link</button>
+              </div>
+
+              <div class="link-box">
+                <div class="link-info">
+                  <strong>Guida EPG (XMLTV):</strong>
+                  <code id="link-epg-url">http://.../epg.xml</code>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('link-epg-url')">📋 Copia Link</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- CONSOLE LOGS -->
+          <div class="card log-card">
+            <div class="card-header flex-between">
+              <h3>📜 Log Estrazione in Tempo Reale</h3>
+              <button class="btn btn-ghost btn-sm" id="btn-refresh-logs">🔄 Ricarica Log</button>
+            </div>
+            <div class="card-body">
+              <pre class="log-console" id="log-console">In attesa di eventi...</pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. TAB: EVENTI SPORTIVI LIVE (LIVEONSAT) -->
+        <section id="tab-events" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <div class="events-topbar">
+                <div class="events-title-info">
+                  <h3>⚽ Guida Eventi Sportivi di Oggi (LiveOnSat)</h3>
+                  <p class="text-muted">Palinsesto in tempo reale con link diretti e canali TV ufficiali</p>
+                </div>
+                <div class="events-top-actions">
+                  <span class="badge badge-group" id="events-count-badge">0 Eventi Oggi</span>
+                  <span class="badge badge-online" id="events-live-count">0 in Diretta Ora</span>
+                  <button class="btn btn-primary btn-sm" id="btn-refresh-events-now">🔄 Aggiorna Palinsesto</button>
+                </div>
+              </div>
+
+              <!-- FILTRI SPORT & STATO -->
+              <div class="events-filter-bar">
+                <div class="sport-pills-wrap">
+                  <button class="sport-pill-btn active" data-sport="all">Tutti gli Sport</button>
+                  <button class="sport-pill-btn" data-sport="calcio">⚽ Calcio</button>
+                  <button class="sport-pill-btn" data-sport="motori">🏎️ Motori (F1/MotoGP)</button>
+                  <button class="sport-pill-btn" data-sport="tennis">🎾 Tennis</button>
+                  <button class="sport-pill-btn" data-sport="basket">🏀 Basket</button>
+                  <button class="sport-pill-btn" data-sport="combattimento">🥊 UFC / Boxe</button>
+                </div>
+
+                <div class="events-subfilters">
+                  <select id="events-status-filter" class="form-select">
+                    <option value="all">Tutti gli orari</option>
+                    <option value="LIVE_NOW">🔴 Solo in Diretta Ora</option>
+                    <option value="UPCOMING">⏳ Prossimi Eventi</option>
+                    <option value="FINISHED">Terminati</option>
+                  </select>
+
+                  <div class="search-input-wrap" style="max-width: 280px;">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="events-search-input" placeholder="Cerca squadra o torneo...">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <div class="events-grid" id="events-cards-grid">
+                <!-- Card generate dinamicamente da events-view.js -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. TAB: LIVE TV WEB PLAYER -->
+        <section id="tab-livetv" class="tab-pane">
+          <div class="livetv-container">
+            <!-- Sidebar Canali Live TV -->
+            <div class="livetv-sidebar">
+              <div class="livetv-search-box">
+                <select id="livetv-group-filter" class="form-select" style="width: 100%; margin-bottom: 8px;">
+                  <option value="ALL">📺 Tutti i Gruppi / Canali</option>
+                </select>
+                <input type="text" id="livetv-search" placeholder="🔍 Cerca tra tutti i canali..." class="form-control" style="width: 100%;">
+                <div class="livetv-count-bar">
+                  <small id="livetv-channel-count" class="text-muted">Caricamento canali...</small>
+                </div>
+              </div>
+              <div class="livetv-channel-list" id="livetv-channel-list">
+                <!-- Canali caricati dinamicamente da player.js -->
+              </div>
+            </div>
+
+            <!-- Video Player Area -->
+            <div class="livetv-player-wrap">
+              <div class="livetv-header">
+                <div>
+                  <h3 id="livetv-current-title">Seleziona un canale</h3>
+                  <span class="badge badge-group" id="livetv-current-group">In attesa</span>
+                </div>
+                <div class="livetv-drm-badge">
+                  <span id="livetv-current-drm">ClearKey DRM EME</span>
+                </div>
+              </div>
+
+              <div class="video-container">
+                <video id="livetv-video" controls autoplay playsinline class="video-element"></video>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. TAB: SORGENTI -->
+        <section id="tab-sources" class="tab-pane">
+          <div class="card">
+            <div class="card-header flex-between">
+              <div>
+                <h3>Catalogo Sorgenti MandraKodi</h3>
+                <p class="text-muted">Seleziona quali liste includere nell'estrazione della playlist M3U</p>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" id="btn-select-all-sources">Seleziona Tutte</button>
+                <button class="btn btn-secondary btn-sm" id="btn-deselect-all-sources">Deseleziona Tutte</button>
+                <button class="btn btn-primary btn-sm" id="btn-save-sources">💾 Salva Selezione</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="sources-grid" id="sources-container">
+                <!-- Generato dinamicamente da app.js -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. TAB: EDITOR CANALI -->
+        <section id="tab-editor" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <div class="filter-bar">
+                <div class="search-input-wrap">
+                  <span class="search-icon">🔍</span>
+                  <input type="text" id="editor-search" placeholder="Cerca canale, gruppo o EPG ID...">
+                </div>
+
+                <select id="editor-group-filter" class="form-select">
+                  <option value="ALL">Tutti i Gruppi</option>
+                </select>
+
+                <select id="editor-status-filter" class="form-select">
+                  <option value="all">Tutti gli stati</option>
+                  <option value="enabled">Solo Abilitati</option>
+                  <option value="disabled">Solo Disabilitati</option>
+                </select>
+
+                <div class="btn-group">
+                  <button class="btn btn-primary btn-sm" id="btn-health-check-visible">🩺 Testa Canali Visibili</button>
+                  <button class="btn btn-secondary btn-sm" id="btn-bulk-enable">Abilita Visibili</button>
+                  <button class="btn btn-secondary btn-sm" id="btn-bulk-disable">Disabilita Visibili</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="channel-table">
+                  <thead>
+                    <tr>
+                      <th width="40">Stato</th>
+                      <th width="50">Anteprima</th>
+                      <th width="50">Logo</th>
+                      <th>Nome Canale</th>
+                      <th>Gruppo</th>
+                      <th>Salute Stream</th>
+                      <th>EPG ID (XMLTV)</th>
+                      <th width="110">Azioni</th>
+                    </tr>
+                  </thead>
+                  <tbody id="channel-table-body">
+                    <!-- Generato dinamicamente da editor.js -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card-footer flex-between">
+              <span id="editor-pagination-info">Mostrando 0 canali</span>
+              <div class="pagination-controls" id="editor-pagination-btns"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. TAB: ORDINE GRUPPI -->
+        <section id="tab-groups" class="tab-pane">
+          <div class="card">
+            <div class="card-header flex-between flex-wrap gap-12">
+              <div>
+                <h3>📑 Gestione & Ordinamento Gruppi Playlist</h3>
+                <p class="text-muted">Personalizza l'ordine di apparizione dei gruppi nel file M3U e nei player IPTV (TiviMate, Kodi, VLC). Trascina gli elementi o usa i pulsanti di spostamento.</p>
+              </div>
+              <div class="groups-header-actions">
+                <span class="badge badge-group" id="groups-total-count">0 Gruppi</span>
+                <button class="btn btn-primary" id="btn-save-groups-order">💾 Salva Ordinamento Gruppi</button>
+              </div>
+            </div>
+
+            <!-- Toolbar Preset -->
+            <div class="groups-toolbar-card">
+              <div class="groups-toolbar-presets">
+                <span class="toolbar-label">⚡ Preset Rapidi:</span>
+                <button class="btn btn-secondary btn-sm" id="btn-preset-smart-order">⭐ Ordine Consigliato (Sky/Sport in cima)</button>
+                <button class="btn btn-secondary btn-sm" id="btn-preset-az-order">🔤 Ordina A-Z</button>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <div class="groups-sortable-container" id="groups-sortable-list">
+                <!-- Generato dinamicamente da groups.js -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. TAB: CANALI CUSTOM -->
+        <section id="tab-custom" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>Aggiungi Canale / Flusso Personalizzato</h3>
+              <p class="text-muted">Aggiungi canali M3U8, MPD o stream esterni manuali alla tua playlist</p>
+            </div>
+            <div class="card-body">
+              <form id="form-custom-channel" class="custom-channel-form">
+                <div class="form-row">
+                  <div class="form-group col-6">
+                    <label>Nome Canale *</label>
+                    <input type="text" id="custom-title" class="form-control" placeholder="Es: DAZN 1 HD" required>
+                  </div>
+                  <div class="form-group col-6">
+                    <label>Gruppo / Categoria</label>
+                    <input type="text" id="custom-group" class="form-control" placeholder="Es: SPORT - Personalizzati" value="Personalizzati">
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group col-12">
+                    <label>URL Stream (.m3u8, .mpd, HTTP) *</label>
+                    <input type="url" id="custom-url" class="form-control" placeholder="https://domain.com/live/stream.m3u8" required>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group col-6">
+                    <label>URL Logo (PNG / JPG)</label>
+                    <input type="url" id="custom-logo" class="form-control" placeholder="https://...">
+                  </div>
+                  <div class="form-group col-6">
+                    <label>EPG ID (Opzionale)</label>
+                    <input type="text" id="custom-tvgid" class="form-control" placeholder="Es: DAZN1.it">
+                  </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary">➕ Aggiungi Canale</button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. TAB: EPG -->
+        <section id="tab-epg" class="tab-pane">
+          <div class="card">
+            <div class="card-header flex-between flex-wrap gap-12">
+              <div>
+                <h3>📅 Guida EPG XMLTV (EPGShare & Sorgenti)</h3>
+                <p class="text-muted">Integrazione automatica dei palinsesti completi da <strong>EPGShare</strong> (.xml.gz) e sorgenti XMLTV per tutti i canali Sky, Sport, Cinema e DTT.</p>
+              </div>
+              <button class="btn btn-primary btn-sm" id="btn-update-epg-now">🔄 Scarica & Aggiorna EPG Ora</button>
+            </div>
+
+            <div class="card-body">
+              <!-- STATS BANNER CACHE XMLTV -->
+              <div id="epg-stats-banner">
+                <!-- Generato da epg-view.js -->
+              </div>
+
+              <!-- BARRA AGGIUNTA PRESET EPGSHARE -->
+              <div class="card" style="background: var(--bg-secondary); border: 1px solid var(--border-color); margin-bottom: 20px; padding: 14px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                  <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 280px;">
+                    <span style="font-size: 1.2rem;">🌐</span>
+                    <select id="epg-preset-select" class="form-select" style="flex: 1;">
+                      <option value="">Caricamento Paesi EPGShare...</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-secondary btn-sm" id="btn-add-epg-preset">➕ Aggiungi Fonte EPG</button>
+                </div>
+              </div>
+
+              <!-- LISTA SORGENTI CONFIGURATE -->
+              <h4 style="margin-bottom: 12px; font-size: 0.95rem; color: var(--text-secondary);">Sorgenti EPG Configurate:</h4>
+              <div id="epg-sources-list">
+                <!-- Generato da epg-view.js -->
+              </div>
+
+              <div class="link-box" style="margin-top: 24px; background: rgba(138, 43, 226, 0.08); border-color: rgba(138, 43, 226, 0.3);">
+                <div class="link-info">
+                  <strong>🔗 URL Guida Programmi EPG Locale per Player IPTV</strong><br>
+                  <span class="url-text" id="epg-public-url">http://localhost:3000/epg.xml</span>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('epg-public-url')">📋 Copia Link</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. TAB: IMPOSTAZIONI -->
+        <section id="tab-settings" class="tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <h3>Impostazioni di Sistema & Automazione</h3>
+            </div>
+            <div class="card-body">
+              <form id="form-settings">
+                <div class="form-group">
+                  <label>Intervallo Aggiornamento Automatico (Cron Schedule)</label>
+                  <select id="setting-cron" class="form-select">
+                    <option value="0 */2 * * *">Ogni 2 ore</option>
+                    <option value="0 */4 * * *">Ogni 4 ore (Consigliato)</option>
+                    <option value="0 */6 * * *">Ogni 6 ore</option>
+                    <option value="0 */12 * * *">Ogni 12 ore</option>
+                    <option value="0 4 * * *">Una volta al giorno (alle 04:00)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label>Token di Sicurezza URL Remoto (Opzionale)</label>
+                  <input type="text" id="setting-token" class="form-control" placeholder="Lascia vuoto per accesso libero o inserisci una stringa segreta">
+                  <small class="text-muted">Se impostato, l'URL M3U diventerà: <code>/playlist.m3u?token=TUO_TOKEN</code></small>
+                </div>
+
+                <div class="card-divider" style="margin: 24px 0; border-top: 1px solid var(--border-color, #333);"></div>
+                <h4 style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+                  <span>⚡</span> Proxy AceStream Centralizzato (Zero Engine sui Client)
+                </h4>
+                
+                <div class="form-group">
+                  <div class="form-check form-switch" style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <input class="form-check-input" type="checkbox" id="setting-acestream-proxy" style="width: 20px; height: 20px; cursor: pointer;">
+                    <label class="form-check-label" for="setting-acestream-proxy" style="cursor: pointer; font-weight: 500;">
+                      Abilita riscrittura automatica canali AceStream tramite Proxy Centralizzato
+                    </label>
+                  </div>
+                  <small class="text-muted" style="display: block;">
+                    Se abilitato, tutti i canali AceStream nella lista M3U e nel Web Player verranno riprodotti come normali flussi HTTP tramite il server MandraKodi, senza richiedere Ace Engine sui dispositivi client (Smart TV, Kodi, VLC, smartphone).
+                  </small>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                  <label for="setting-acestream-host">Indirizzo Ace Stream Engine (Host:Porta)</label>
+                  <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="setting-acestream-host" class="form-control" placeholder="127.0.0.1:6878" style="flex: 1;">
+                    <button type="button" id="btn-test-acestream" class="btn btn-secondary" style="white-space: nowrap; padding: 10px 16px;">
+                      🔍 Testa Connessione
+                    </button>
+                  </div>
+                  <div id="acestream-status-badge" style="margin-top: 8px;"></div>
+                  <small class="text-muted">
+                    Specificare <code>127.0.0.1:6878</code> per engine locale o container Docker/LXC sulla stessa macchina, oppure <code>IP_SERVER:6878</code> per engine su un host remoto.
+                  </small>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="margin-top: 20px;">💾 Salva Impostazioni</button>
+              </form>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- MODALE VIDEO PLAYER (ANTEPRIMA RAPIDA EDITOR) -->
+  <div class="modal-overlay" id="player-modal">
+    <div class="modal-card modal-player-card">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-player-title">Anteprima Canale</h3>
+          <small class="badge badge-group" id="modal-player-group">Gruppo</small>
+        </div>
+        <button class="modal-close" onclick="closeModalPlayer()">✖</button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="video-container modal-video-wrap">
+          <video id="modal-video" controls autoplay playsinline class="video-element"></video>
+        </div>
+        <div class="modal-player-info">
+          <span id="modal-player-drm" class="text-muted" style="font-size: 0.8rem;">DRM Status</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALE MODIFICA CANALE -->
+  <div class="modal-overlay" id="edit-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Modifica Canale</h3>
+        <button class="modal-close" onclick="closeEditModal()">✖</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-channel-id">
+        <div class="form-group">
+          <label>Nome Canale</label>
+          <input type="text" id="edit-channel-title" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>Gruppo</label>
+          <input type="text" id="edit-channel-group" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>URL Logo</label>
+          <input type="text" id="edit-channel-logo" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>EPG ID (XMLTV)</label>
+          <input type="text" id="edit-channel-tvgid" class="form-control">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEditModal()">Annulla</button>
+        <button class="btn btn-primary" id="btn-save-channel-edit">Salva Modifiche</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL RINOMINA GRUPPO -->
+  <div class="modal-backdrop" id="modal-rename-group">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>✏️ Rinomina Gruppo</h3>
+        <button class="modal-close" onclick="closeRenameGroupModal()">✖</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Nome Attuale del Gruppo</label>
+          <input type="text" id="rename-old-group" class="form-control" disabled>
+        </div>
+        <div class="form-group">
+          <label>Nuovo Nome del Gruppo *</label>
+          <input type="text" id="rename-new-group" class="form-control" placeholder="Es: CANALI - Sport Italia" required>
+          <small class="text-muted">Il nuovo nome verrà applicato istantaneamente a tutti i canali appartenenti a questo gruppo.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeRenameGroupModal()">Annulla</button>
+        <button class="btn btn-primary" id="btn-confirm-rename-group">Salva e Aggiorna Canali</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div class="toast" id="toast-notification">Operazione completata</div>
+
+  <script src="js/player.js"></script>
+  <script src="js/events-view.js"></script>
+  <script src="js/groups.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/epg-view.js"></script>
+</body>
+</html>

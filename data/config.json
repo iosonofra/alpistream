@@ -1,0 +1,60 @@
+{
+  "port": 3000,
+  "authToken": "",
+  "adminPassword": "",
+  "aceStreamHost": "127.0.0.1:6878",
+  "aceStreamProxyEnabled": true,
+  "cronSchedule": "0 */4 * * *",
+  "cronEnabled": true,
+  "maxWorkers": 25,
+  "defaultUserAgent": "MandraKodi2@@2.2.1@@MandraKodi3@@MKD123",
+  "activeSources": [
+    "1",
+    "3",
+    "5",
+    "6"
+  ],
+  "epgSources": [
+    {
+      "id": "epgshare-it",
+      "name": "EPGShare Italia (Sky, DAZN, Cinema, Sport, DTT)",
+      "url": "https://epgshare01.online/epgshare01/epg_ripper_IT1.xml.gz",
+      "enabled": true
+    },
+    {
+      "id": "epgshare-uk",
+      "name": "EPGShare United Kingdom (Sky UK, TNT Sports, BBC)",
+      "url": "https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz",
+      "enabled": false
+    },
+    {
+      "id": "epgshare-us",
+      "name": "EPGShare USA Sports & Networks",
+      "url": "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz",
+      "enabled": false
+    },
+    {
+      "id": "epgshare-es",
+      "name": "EPGShare Spagna (Movistar+, DAZN ES)",
+      "url": "https://epgshare01.online/epgshare01/epg_ripper_ES1.xml.gz",
+      "enabled": false
+    },
+    {
+      "id": "epgshare-de",
+      "name": "EPGShare Germania (Sky DE, DAZN DE)",
+      "url": "https://epgshare01.online/epgshare01/epg_ripper_DE1.xml.gz",
+      "enabled": false
+    },
+    {
+      "id": "epg-ita-tivu",
+      "name": "IPTV-Org Italia (Tivù / Mediaset)",
+      "url": "https://iptv-org.github.io/epg/guides/it/tivu.tv.epg.xml",
+      "enabled": false
+    }
+  ],
+  "groupOrder": [
+    "CANALI - Sky Sport",
+    "CANALI - Sky Intrattenimento",
+    "CANALI - Nazionali (Italy)"
+  ]
+}
