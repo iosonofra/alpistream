@@ -155,13 +155,13 @@ app.get('/api/channels', (req, res) => {
   const channels = storage.getChannels();
   const customChannels = storage.getCustomChannels();
   const rawAll = [...channels, ...customChannels];
-  const groups = [...new Set(rawAll.map(c => c.group || 'Generale'))].filter(Boolean).sort();
+  const groups = [...new Set(rawAll.map(c => sanitizeGroupName(c.customGroup || c.group || 'Generale')))].filter(Boolean).sort();
 
   let all = [...rawAll];
 
   // Filtro gruppo
   if (group && group !== 'ALL') {
-    all = all.filter(ch => ch.group === group);
+    all = all.filter(ch => sanitizeGroupName(ch.customGroup || ch.group || 'Generale') === group || ch.group === group);
   }
 
   // Filtro stato
@@ -345,6 +345,29 @@ app.get('/api/stream/proxy', async (req, res) => {
   const { url, referer, origin, ua } = req.query;
   if (!url) return res.status(400).send('Missing stream URL');
 
+  const cfg = storage.getConfig();
+  let useWarp = req.query.warp === '1' || req.query.warp === 'true';
+
+  if (!useWarp && cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && cfg.warpGroups.length > 0) {
+    const isGroupInWarp = (g) => {
+      if (!g) return false;
+      const lower = g.trim().toLowerCase();
+      return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+    };
+    const channels = storage.getChannels();
+    const custom = storage.getCustomChannels();
+    const all = [...custom, ...channels];
+    const cleanU = url.split('?')[0];
+    const ch = all.find(c => c.url && (c.url.split('?')[0] === cleanU || url.includes(c.url.split('?')[0])));
+    if (ch) {
+      const rawG = ch.customGroup || ch.group || '';
+      const cleanG = sanitizeGroupName(rawG);
+      if (ch.useWarp || isGroupInWarp(rawG) || isGroupInWarp(cleanG)) {
+        useWarp = true;
+      }
+    }
+  }
+
   try {
     const headers = {
       'User-Agent': ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
@@ -355,14 +378,24 @@ app.get('/api/stream/proxy', async (req, res) => {
     if (req.headers.range) headers['Range'] = req.headers.range;
 
     const axios = require('axios');
-    const response = await axios.get(url, {
+    const axiosOpts = {
       headers,
       responseType: 'stream',
       timeout: 15000,
       validateStatus: (s) => s >= 200 && s < 400
-    });
+    };
+    if (useWarp) {
+      const agent = getWarpAgent();
+      if (agent) {
+        axiosOpts.httpAgent = agent;
+        axiosOpts.httpsAgent = agent;
+      }
+    }
+
+    const response = await axios.get(url, axiosOpts);
 
     const isMpd = url.includes('.mpd') || (response.headers['content-type'] && response.headers['content-type'].includes('xml'));
+    const isM3u8 = url.includes('.m3u8') || (response.headers['content-type'] && (response.headers['content-type'].includes('mpegurl') || response.headers['content-type'].includes('x-mpegURL')));
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
@@ -395,6 +428,35 @@ app.get('/api/stream/proxy', async (req, res) => {
         res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
         res.setHeader('Content-Length', Buffer.byteLength(xml, 'utf-8'));
         res.status(200).send(xml);
+      });
+      return;
+    }
+
+    if (isM3u8 && useWarp) {
+      const chunks = [];
+      response.data.on('data', chunk => chunks.push(chunk));
+      response.data.on('end', () => {
+        let m3u8Str = Buffer.concat(chunks).toString('utf-8');
+        const host = req.get('host');
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        const baseUrl = `${protocol}://${host}`;
+        let baseDir = url;
+        if (baseDir.includes('?')) baseDir = baseDir.split('?')[0];
+        const lastSlash = baseDir.lastIndexOf('/');
+        baseDir = lastSlash !== -1 ? baseDir.substring(0, lastSlash + 1) : '';
+
+        m3u8Str = m3u8Str.replace(/^(?!#)(.+)$/gm, (m) => {
+          const absUrl = (m.startsWith('http://') || m.startsWith('https://')) ? m : `${baseDir}${m}`;
+          const p = new URLSearchParams({ url: absUrl, warp: '1' });
+          if (referer) p.set('referer', referer);
+          if (origin) p.set('origin', origin);
+          if (ua) p.set('ua', ua);
+          return `${baseUrl}/api/stream/proxy?${p.toString()}`;
+        });
+
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+        res.setHeader('Content-Length', Buffer.byteLength(m3u8Str, 'utf-8'));
+        res.status(200).send(m3u8Str);
       });
       return;
     }
@@ -934,14 +996,20 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   // Rileva se il flusso deve essere instradato tramite Cloudflare WARP
   const cfg = storage.getConfig();
   let useWarp = req.query.warp === '1' || req.query.warp === 'true';
-  if (!useWarp && cfg && cfg.warpEnabled && channelIdOrUrl && !channelIdOrUrl.startsWith('http')) {
+  if (!useWarp && cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && cfg.warpGroups.length > 0) {
+    const isGroupInWarp = (g) => {
+      if (!g) return false;
+      const lower = g.trim().toLowerCase();
+      return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+    };
     const channels = storage.getChannels();
     const custom = storage.getCustomChannels();
     const all = [...custom, ...channels];
-    const ch = all.find(c => c.id === channelIdOrUrl);
+    const ch = all.find(c => channelIdOrUrl && (c.id === channelIdOrUrl || c.url === channelIdOrUrl || (c.url && channelIdOrUrl.includes(c.url))));
     if (ch) {
-      const g = ch.customGroup || ch.group || '';
-      if (ch.useWarp || (Array.isArray(cfg.warpGroups) && cfg.warpGroups.includes(g))) {
+      const rawG = ch.customGroup || ch.group || '';
+      const cleanG = sanitizeGroupName(rawG);
+      if (ch.useWarp || isGroupInWarp(rawG) || isGroupInWarp(cleanG)) {
         useWarp = true;
       }
     }
@@ -1193,7 +1261,15 @@ app.get(['/stream/htsport/epiembeds/:slug/playlist.m3u8', '/stream/htsport/epiem
   if (!slug) return res.status(400).send('Parametro slug mancante.');
 
   const cfg = storage.getConfig();
-  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && cfg.warpGroups.some(g => g.toLowerCase().includes('htsport')));
+  const isGroupInWarp = (g) => {
+    if (!g || !Array.isArray(cfg.warpGroups)) return false;
+    const lower = g.trim().toLowerCase();
+    return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+  };
+  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && (
+    isGroupInWarp('SPORT - HTSport') ||
+    cfg.warpGroups.some(g => g.toLowerCase().includes('htsport') || g.toLowerCase().includes('sport'))
+  ));
 
   try {
     const directM3u8Url = await HTSportService.resolveEpiEmbeds(slug);
@@ -1287,7 +1363,15 @@ app.get(['/stream/htsport/tvnow/:id/playlist.m3u8', '/stream/htsport/tvnow/:id']
   if (!channelId) return res.status(400).send('Parametro channelId mancante.');
 
   const cfg = storage.getConfig();
-  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && cfg.warpGroups.some(g => g.toLowerCase().includes('htsport')));
+  const isGroupInWarp = (g) => {
+    if (!g || !Array.isArray(cfg.warpGroups)) return false;
+    const lower = g.trim().toLowerCase();
+    return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+  };
+  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && (
+    isGroupInWarp('SPORT - HTSport') ||
+    cfg.warpGroups.some(g => g.toLowerCase().includes('htsport') || g.toLowerCase().includes('sport'))
+  ));
 
   try {
     const directM3u8Url = await HTSportService.resolveTvNow(channelId);

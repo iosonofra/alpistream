@@ -45,7 +45,7 @@ function getCleanUrl(rawUrl) {
   return rawUrl.trim();
 }
 
-function buildProxyUrl(rawUrl, headersObj) {
+function buildProxyUrl(rawUrl, headersObj, useWarp = false) {
   const cleanUrl = getCleanUrl(rawUrl);
   const params = new URLSearchParams({
     url: cleanUrl,
@@ -53,6 +53,9 @@ function buildProxyUrl(rawUrl, headersObj) {
     origin: headersObj.origin || 'https://www.nowtv.it',
     ua: headersObj.ua || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   });
+  if (useWarp) {
+    params.set('warp', '1');
+  }
   return `/api/stream/proxy?${params.toString()}`;
 }
 
@@ -74,6 +77,14 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
   const cleanUrl = getCleanUrl(ch.url);
   const headersObj = parseHeaders(ch.headers, ch.url);
   const clearkey = ch.clearkey || (ch.kodi_props ? ch.kodi_props['inputstream.adaptive.license_key'] : '');
+
+  const cfg = window.appConfig || {};
+  const isGroupInWarp = (g) => {
+    if (!g || !Array.isArray(cfg.warpGroups)) return false;
+    const lower = g.trim().toLowerCase();
+    return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+  };
+  const useWarp = !!(cfg.warpEnabled && (ch.useWarp === true || isGroupInWarp(ch.group) || isGroupInWarp(ch.customGroup)));
 
   // 1. Riconoscimento stream AceStream
   let aceHash = '';
@@ -216,10 +227,10 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           } catch (e) {}
         }
 
-        request.uris = [buildProxyUrl(uri, headersObj)];
+        request.uris = [buildProxyUrl(uri, headersObj, useWarp)];
       });
 
-      const initialProxyUrl = buildProxyUrl(cleanUrl, headersObj);
+      const initialProxyUrl = buildProxyUrl(cleanUrl, headersObj, useWarp);
       await playerInstance.load(initialProxyUrl);
       videoEl.play().catch(() => {});
       return playerInstance;
@@ -231,11 +242,11 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
   // Fallback Hls.js
   if (window.Hls && Hls.isSupported() && (cleanUrl.includes('.m3u8') || cleanUrl.includes('hls'))) {
     const hls = new Hls({ maxBufferLength: 10 });
-    hls.loadSource(buildProxyUrl(cleanUrl, headersObj));
+    hls.loadSource(buildProxyUrl(cleanUrl, headersObj, useWarp));
     hls.attachMedia(videoEl);
     hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
   } else {
-    videoEl.src = buildProxyUrl(cleanUrl, headersObj);
+    videoEl.src = buildProxyUrl(cleanUrl, headersObj, useWarp);
     videoEl.play().catch(() => {});
   }
 

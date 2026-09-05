@@ -823,8 +823,20 @@ class ExtractorEngine {
           if (match) aceHash = match[1];
         }
 
+        // Helper per verificare se un gruppo è incluso nella configurazione WARP (case-insensitive)
+        const isGroupInWarp = (g) => {
+          if (!g || !Array.isArray(cfg.warpGroups)) return false;
+          const lower = g.trim().toLowerCase();
+          return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
+        };
+
         // Verifica se il canale deve usare il proxy Cloudflare WARP (per singolo canale o per gruppo)
-        const isWarpActive = !!(cfg && cfg.warpEnabled && (ch.useWarp === true || (Array.isArray(cfg.warpGroups) && cfg.warpGroups.includes(groupName))));
+        const isWarpActive = !!(cfg && cfg.warpEnabled && (
+          ch.useWarp === true ||
+          isGroupInWarp(groupName) ||
+          isGroupInWarp(ch.group) ||
+          isGroupInWarp(ch.customGroup)
+        ));
         const warpQueryParam = isWarpActive ? 'warp=1' : '';
 
         const appendParam = (uri, q) => {
@@ -841,11 +853,18 @@ class ExtractorEngine {
           }
         } else {
           const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
-          if (hasClearKey && baseUrl && mpdProxyEnabled && ch.id) {
+          if (hasClearKey && baseUrl && (mpdProxyEnabled || isWarpActive) && ch.id) {
             isMpdProxy = true;
             let streamPath = `${baseUrl}/stream/mpd/${ch.id}`;
             if (warpQueryParam) streamPath = appendParam(streamPath, warpQueryParam);
             finalUrl = `${streamPath}${tokenParam ? (streamPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
+          } else if (isWarpActive && baseUrl && !url.includes('/stream/htsport/')) {
+            // Se WARP è attivo su questo gruppo/canale ma non è MPD con ClearKey né HTSport,
+            // instrada il flusso HLS/HTTP tramite il proxy CORS di MandraKodi per farlo passare da WARP
+            let streamPath = `${baseUrl}/api/stream/proxy`;
+            const qParams = new URLSearchParams({ url, warp: '1' });
+            if (headers) qParams.set('headers', headers);
+            finalUrl = `${streamPath}?${qParams.toString()}${tokenParam ? '&' + tokenParam.slice(1) : ''}`;
           }
         }
 
