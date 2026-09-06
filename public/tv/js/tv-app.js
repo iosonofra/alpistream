@@ -84,6 +84,19 @@
     });
     window.tvPlayer.setAuthToken(state.authToken);
 
+    // Eventi di sicurezza sul tag video: nascondi SUBITO lo spinner quando il video riproduce
+    if (el.video) {
+      el.video.addEventListener('playing', () => hideSpinner());
+      el.video.addEventListener('canplay', () => hideSpinner());
+      el.video.addEventListener('loadeddata', () => hideSpinner());
+      el.video.addEventListener('timeupdate', () => {
+        if (el.video && !el.video.paused) hideSpinner();
+      });
+      el.video.addEventListener('progress', () => {
+        if (el.video && !el.video.paused && el.video.readyState >= 2) hideSpinner();
+      });
+    }
+
     // Registra ascoltatori tasti telecomando & puntatore
     document.addEventListener('keydown', handleKeyDown);
     setupModalEvents();
@@ -446,14 +459,32 @@
       return;
     }
 
+    // Throttle per scorrimento rapido D-Pad telecomando (evita accumulo eventi su webOS)
+    if (keyCode >= 37 && keyCode <= 40) {
+      const now = Date.now();
+      if (now - lastKeyNavTimestamp < 45) {
+        e.preventDefault();
+        return;
+      }
+      lastKeyNavTimestamp = now;
+    }
+
     // Tasti Channel Up / Channel Down (P+ / P-)
     if (keyCode === 33 || keyCode === 427) { // PageUp / ChannelUp
-      zapChannel(1);
+      if (state.overlayVisible && state.focusZone === 'channels') {
+        moveFocusVertical(-5);
+      } else {
+        zapChannel(1);
+      }
       e.preventDefault();
       return;
     }
     if (keyCode === 34 || keyCode === 428) { // PageDown / ChannelDown
-      zapChannel(-1);
+      if (state.overlayVisible && state.focusZone === 'channels') {
+        moveFocusVertical(5);
+      } else {
+        zapChannel(-1);
+      }
       e.preventDefault();
       return;
     }
@@ -541,14 +572,14 @@
 
   function moveFocusVertical(delta) {
     if (state.focusZone === 'groups') {
-      const next = state.focusedGroupIdx + delta;
-      if (next >= 0 && next < state.groups.length) {
+      const next = Math.max(0, Math.min(state.groups.length - 1, state.focusedGroupIdx + delta));
+      if (next !== state.focusedGroupIdx) {
         selectGroup(next, false);
         updateFocusVisuals();
       }
     } else if (state.focusZone === 'channels') {
-      const next = state.focusedChannelIdx + delta;
-      if (next >= 0 && next < state.filteredChannels.length) {
+      const next = Math.max(0, Math.min(state.filteredChannels.length - 1, state.focusedChannelIdx + delta));
+      if (next !== state.focusedChannelIdx) {
         state.focusedChannelIdx = next;
         updateFocusVisuals();
       }
@@ -592,17 +623,31 @@
     }
   }
 
-  // Aggiornamento O(1) focus visivo (ultra-rapido per CPU Smart TV)
+  // Aggiornamento O(1) focus visivo e scroll matematico ultra-rapido (senza layout thrashing)
   function updateFocusVisuals() {
     if (state.focusZone === 'channels') {
-      const target = document.getElementById(`channel-item-${state.focusedChannelIdx}`);
+      const target = (el.channelsList && el.channelsList.children[state.focusedChannelIdx]) || document.getElementById(`channel-item-${state.focusedChannelIdx}`);
       if (currentFocusedChannelEl && currentFocusedChannelEl !== target) {
         currentFocusedChannelEl.classList.remove('focused');
       }
       if (target) {
         target.classList.add('focused');
-        target.scrollIntoView({ block: 'nearest', behavior: 'auto' });
         currentFocusedChannelEl = target;
+
+        // Scorrimento ultra-veloce GPU compositor basato su scrollTop (senza reflow del layout)
+        const itemHeight = target.offsetHeight || 86;
+        const gap = 10;
+        const totalHeight = itemHeight + gap;
+        const targetTop = state.focusedChannelIdx * totalHeight;
+        const container = el.channelsList;
+        const containerHeight = container.clientHeight;
+        const currentScroll = container.scrollTop;
+
+        if (targetTop < currentScroll + totalHeight) {
+          container.scrollTop = Math.max(0, targetTop - totalHeight);
+        } else if (targetTop + totalHeight > currentScroll + containerHeight - totalHeight) {
+          container.scrollTop = targetTop + totalHeight * 2 - containerHeight;
+        }
       }
     } else if (state.focusZone === 'groups') {
       const target = el.groupsList ? el.groupsList.children[state.focusedGroupIdx] : null;
@@ -611,8 +656,21 @@
       }
       if (target) {
         target.classList.add('focused');
-        target.scrollIntoView({ block: 'nearest', behavior: 'auto' });
         currentFocusedGroupEl = target;
+
+        const itemHeight = target.offsetHeight || 58;
+        const gap = 10;
+        const totalHeight = itemHeight + gap;
+        const targetTop = state.focusedGroupIdx * totalHeight;
+        const container = el.groupsList;
+        const containerHeight = container.clientHeight;
+        const currentScroll = container.scrollTop;
+
+        if (targetTop < currentScroll + totalHeight) {
+          container.scrollTop = Math.max(0, targetTop - totalHeight);
+        } else if (targetTop + totalHeight > currentScroll + containerHeight - totalHeight) {
+          container.scrollTop = targetTop + totalHeight * 2 - containerHeight;
+        }
       }
     }
   }
@@ -665,46 +723,77 @@
     }, 1200);
   }
 
-  // Gestione Spinner e Stato Player con Debounce e Watchdog
+  let activePlayMonitorInterval = null;
+
+  // Gestione Spinner e Stato Player con Polling Attivo e Auto-Dismiss
   function showSpinner(text) {
     if (el.spinnerText) el.spinnerText.textContent = text || 'Caricamento...';
     if (el.spinner) el.spinner.classList.remove('hidden');
+    startActivePlaybackMonitor();
   }
 
   function hideSpinner() {
     clearTimeout(bufferingDebounceTimer);
     clearTimeout(loadingWatchdogTimer);
+    if (activePlayMonitorInterval) {
+      clearInterval(activePlayMonitorInterval);
+      activePlayMonitorInterval = null;
+    }
     if (el.spinner) el.spinner.classList.add('hidden');
+  }
+
+  // Monitor attivo continuo: non appena i frame o il playback sono avviati, nascondi SUBITO lo spinner!
+  function startActivePlaybackMonitor() {
+    if (activePlayMonitorInterval) clearInterval(activePlayMonitorInterval);
+    let checks = 0;
+    activePlayMonitorInterval = setInterval(() => {
+      checks++;
+      if (!el.video) return;
+
+      // Se il video è avviato (non in pausa) ed ha dati pronti (readyState >= 2 o time che scorre)
+      const isVideoActive = !el.video.paused && (
+        el.video.readyState >= 2 ||
+        el.video.currentTime > 0 ||
+        (el.video.webkitDecodedFrameCount && el.video.webkitDecodedFrameCount > 0)
+      );
+
+      if (isVideoActive) {
+        hideSpinner();
+        return;
+      }
+
+      // Timeout di sicurezza massimo: dopo 8 secondi nascondi comunque per evitare blocchi permanenti a video
+      if (checks > 40) { // 40 * 200ms = 8s
+        hideSpinner();
+      }
+    }, 200);
   }
 
   function handlePlayerStatus(status, data) {
     switch (status) {
       case 'loading':
         clearTimeout(bufferingDebounceTimer);
-        showSpinner(data.fallback ? 'Attivazione fallback stream copy...' : 'Caricamento flusso...');
-        // Watchdog di sicurezza: dopo 3 secondi, se il video sta riproducendo, nascondi lo spinner
-        clearTimeout(loadingWatchdogTimer);
-        loadingWatchdogTimer = setTimeout(() => {
-          if (el.video && !el.video.paused && el.video.currentTime > 0) {
-            hideSpinner();
-          }
-        }, 3000);
+        showSpinner(data && data.fallback ? 'Attivazione fallback stream copy...' : 'Caricamento flusso...');
         break;
       case 'buffering':
         clearTimeout(bufferingDebounceTimer);
-        // Debounce: mostra "Buffering..." solo se l'attesa persiste oltre 800ms
+        // Debounce: mostra "Buffering..." solo se l'attesa persiste oltre 1500ms
         bufferingDebounceTimer = setTimeout(() => {
-          if (el.video && (el.video.paused || el.video.readyState < 3)) {
+          if (el.video && (el.video.paused || el.video.readyState < 2)) {
             showSpinner('Buffering...');
+            // Auto-hide entro 3.5s per evitare che resti sovrimpresso
+            setTimeout(() => {
+              if (el.video && !el.video.paused) hideSpinner();
+            }, 3500);
           }
-        }, 800);
+        }, 1500);
         break;
       case 'playing':
         hideSpinner();
         break;
       case 'error':
         hideSpinner();
-        showToast(`⚠️ ${data.error || 'Errore riproduzione'}`);
+        showToast(`⚠️ ${data && data.error ? data.error : 'Errore riproduzione'}`);
         break;
     }
   }

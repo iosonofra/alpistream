@@ -30,14 +30,17 @@ class TvPlayer {
 
     this.video.addEventListener('playing', () => this.markPlaying());
     this.video.addEventListener('canplay', () => this.markPlaying());
+    this.video.addEventListener('loadeddata', () => this.markPlaying());
     this.video.addEventListener('timeupdate', () => {
-      if (this.video && this.video.currentTime > 0 && !this.video.paused) {
+      if (this.video && !this.video.paused) {
         this.markPlaying();
       }
     });
 
     this.video.addEventListener('waiting', () => {
-      this.onStatusChange('buffering', { channel: this.currentChannel });
+      if (this.video && this.video.paused) {
+        this.onStatusChange('buffering', { channel: this.currentChannel });
+      }
     });
 
     this.video.addEventListener('error', (e) => {
@@ -202,6 +205,14 @@ class TvPlayer {
           });
         }
 
+        if (mpegts.Events.STATISTICS_INFO) {
+          this.mpegInstance.on(mpegts.Events.STATISTICS_INFO, (stat) => {
+            if (stat && (stat.decodedFrames > 0 || stat.speed > 0)) {
+              this.markPlaying();
+            }
+          });
+        }
+
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
         this.mpegInstance.play().catch(err => {
@@ -270,6 +281,14 @@ class TvPlayer {
           });
         }
 
+        if (mpegts.Events.STATISTICS_INFO) {
+          this.mpegInstance.on(mpegts.Events.STATISTICS_INFO, (stat) => {
+            if (stat && (stat.decodedFrames > 0 || stat.speed > 0)) {
+              if (this.markPlaying) this.markPlaying();
+            }
+          });
+        }
+
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
         this.mpegInstance.play().catch(err => {
@@ -306,6 +325,10 @@ class TvPlayer {
         });
 
         this.hlsInstance.on(Hls.Events.FRAG_LOADED, () => {
+          if (this.markPlaying) this.markPlaying();
+        });
+
+        this.hlsInstance.on(Hls.Events.FRAG_PARSED, () => {
           if (this.markPlaying) this.markPlaying();
         });
 
