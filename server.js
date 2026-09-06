@@ -1117,9 +1117,17 @@ setInterval(() => {
 function trimSegmentTimelineInManifest(manifest, keepCount = 12) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
 
-  // 1. Inietta o aggiorna suggestedPresentationDelay="PT10S" e riduci timeShiftBufferDepth="PT120S"
+  // 1. Inietta o aggiorna suggestedPresentationDelay="PT10S", timeShiftBufferDepth="PT120S",
+  // e forza type="dynamic" rimuovendo durate fisse per evitare che FFmpeg esca a fine buffer su canali live statici (es. DAZN)
   cleaned = cleaned.replace(/<MPD\b([^>]*)>/i, (match, attrs) => {
     let a = attrs;
+    if (/type=["']static["']/i.test(a)) {
+      a = a.replace(/type=["']static["']/i, 'type="dynamic"');
+    }
+    a = a.replace(/\s*\bmediaPresentationDuration="[^"]*"/i, '');
+    if (!a.includes('minimumUpdatePeriod=')) {
+      a = ` minimumUpdatePeriod="PT2S"${a}`;
+    }
     if (a.includes('suggestedPresentationDelay=')) {
       a = a.replace(/suggestedPresentationDelay="[^"]*"/i, 'suggestedPresentationDelay="PT10S"');
     } else {
@@ -1130,6 +1138,9 @@ function trimSegmentTimelineInManifest(manifest, keepCount = 12) {
     }
     return `<MPD${a}>`;
   });
+
+  // Rimuovi duration dai Period per non interrompere flussi live continui
+  cleaned = cleaned.replace(/<Period\b([^>]*)\bduration="[^"]*"/gi, '<Period$1');
 
   // 2. Livella le SegmentTimeline per non passare ore di storico a FFmpeg/demuxer
   cleaned = cleaned.replace(/<SegmentTemplate([\s\S]*?)<\/SegmentTemplate>/gi, (tplMatch) => {

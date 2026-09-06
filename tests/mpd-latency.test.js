@@ -97,3 +97,22 @@ test('generateM3U emits inputstream.adaptive.live_delay=10 for MPD streams in Ko
   const m3u = engine.generateM3U(channels, 'http://127.0.0.1:3000');
   assert.match(m3u, /#KODIPROP:inputstream\.adaptive\.live_delay=10/);
 });
+
+test('trimSegmentTimelineInManifest converts static live manifest to dynamic and removes mediaPresentationDuration', () => {
+  const sample = `<MPD type="static" mediaPresentationDuration="PT60.000S" profiles="urn:mpeg:dash:profile:isoff-live:2011">
+    <Period id="0" duration="PT60.000S">
+      <SegmentTemplate timescale="25000" startNumber="35000">
+        <SegmentTimeline>
+          <S t="100000" d="50000" r="29" />
+        </SegmentTimeline>
+      </SegmentTemplate>
+    </Period>
+  </MPD>`;
+
+  const result = trimSegmentTimelineInManifest(sample, 12);
+  assert.match(result, /type="dynamic"/);
+  assert.match(result, /minimumUpdatePeriod="PT2S"/);
+  assert.doesNotMatch(result, /mediaPresentationDuration=/);
+  assert.doesNotMatch(result, /<Period\b[^>]*\bduration=/);
+});
+

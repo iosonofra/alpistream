@@ -355,7 +355,7 @@ class TvPlayer {
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60, // Limita memoria occupata sulla TV
           autoCleanupMinBackwardDuration: 15, // Preserva i keyframe recenti
-          fixAudioTimestampGap: false // Sincronizza i timestamp audio se c'è un gap
+          fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
         });
 
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
@@ -422,7 +422,7 @@ class TvPlayer {
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60, // Limita memoria occupata sulla TV
           autoCleanupMinBackwardDuration: 15, // Preserva i keyframe recenti
-          fixAudioTimestampGap: false // Sincronizza i timestamp audio se c'è un gap
+          fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
         });
 
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
