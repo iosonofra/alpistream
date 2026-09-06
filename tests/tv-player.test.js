@@ -45,7 +45,7 @@ function setup() {
   };
   const window = { location: { origin: 'http://localhost' }, Hls: Engine, mpegts };
   vm.runInNewContext(source, {
-    window, Hls: Engine, mpegts, console: { log() {}, warn() {} },
+    window, Hls: Engine, mpegts, URLSearchParams, console: { log() {}, warn() {} },
     setInterval(fn) { timers.set(++timerId, fn); return timerId; },
     clearInterval(id) { timers.delete(id); }
   });
@@ -195,4 +195,60 @@ test('HLS network failure retries HLS without sending non-DASH channels to MPD p
 
 test('TV browser and packaged player are identical', () => {
   assert.equal(fs.readFileSync(path.join(__dirname, '../public/tv/js/tv-player.js'), 'utf8'), source);
+});
+
+test('FFmpeg WARP catalog variants route MPD sources through the backend', async () => {
+  const { player } = setup();
+  player.setAuthToken('token & value');
+  const ch = { id: 'sport_ffmpeg', url: 'https://cdn.example/live.mpd', streamMode: 'ffmpeg_copy', useWarp: true };
+  const target = new URL(player.resolveUrl(ch));
+  assert.equal(target.pathname, '/stream/mpd/sport_ffmpeg.ts');
+  assert.equal(target.searchParams.get('warp'), '1');
+  assert.equal(target.searchParams.get('token'), 'token & value');
+  await player.play(ch);
+  assert.ok(player.mpegInstance);
+  assert.equal(player.hlsInstance, null);
+});
+
+test('direct WARP DASH and license metadata also use server decoding on TV', () => {
+  const { player } = setup();
+  for (const extra of [
+    { streamMode: 'warp_direct', kodi_props: { 'inputstream.adaptive.manifest_type': 'mpd' } },
+    { kodi_props: { 'inputstream.adaptive.license_key': 'kid:key' }, useWarp: true }
+  ]) {
+    const target = new URL(player.resolveUrl({ id: 'sport_warp', url: 'https://cdn.example/manifest', ...extra }));
+    assert.equal(target.pathname, '/stream/mpd/sport_warp.ts');
+    assert.equal(target.searchParams.get('warp'), '1');
+  }
+});
+
+test('WARP HLS uses the proxy with CDN headers and the server auth token', async () => {
+  const { player } = setup();
+  player.setAuthToken('secret');
+  const ch = { id: 'hls', url: 'https://cdn.example/live.m3u8?signature=a%2Bb', useWarp: true,
+    headers: 'Referer=https%3A%2F%2Fsite.example%2F&Origin=https%3A%2F%2Fsite.example&User-Agent=TV' };
+  const target = new URL(player.resolveUrl(ch));
+  assert.equal(target.pathname, '/api/stream/proxy.m3u8');
+  assert.equal(target.searchParams.get('url'), ch.url);
+  assert.equal(target.searchParams.get('referer'), 'https://site.example/');
+  assert.equal(target.searchParams.get('origin'), 'https://site.example');
+  assert.equal(target.searchParams.get('ua'), 'TV');
+  assert.equal(target.searchParams.get('token'), 'secret');
+  assert.equal(target.searchParams.get('warp'), '1');
+  await player.play(ch);
+  assert.ok(player.hlsInstance);
+});
+
+test('HTSport stays direct even when flagged WARP; plain HLS stays direct', () => {
+  const { player } = setup();
+  const url = 'https://cdn.example/live.m3u8';
+  assert.equal(player.resolveUrl({ url }), url);
+  assert.equal(player.resolveUrl({ url, source: 'htsport', useWarp: true }), url);
+});
+
+test('WARP transport streams retain MPEG-TS detection behind the proxy query', async () => {
+  const { player } = setup();
+  await player.play({ url: 'https://cdn.example/live.ts?signature=abc', useWarp: true });
+  assert.ok(player.mpegInstance);
+  assert.equal(player.hlsInstance, null);
 });

@@ -66,11 +66,6 @@ body.tv-body {
   height: 100%;
   z-index: 1;
   background-color: #000;
-  transition: width 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-              height 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-              top 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-              right 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-              border-radius 0.18s ease;
 }
 
 .video-container.pip-mode {
@@ -83,7 +78,6 @@ body.tv-body {
   border-radius: 18px;
   overflow: hidden;
   border: 2px solid rgba(0, 229, 255, 0.4);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 178, 254, 0.25);
 }
 
 .video-container.pip-mode #tv-video {
@@ -332,11 +326,12 @@ body.tv-body {
 }
 
 .group-item {
+  height: 58px;
+  min-height: 58px;
   padding: 16px 24px;
   border-radius: 16px;
-  background: var(--sky-glass-surface);
-  border: var(--glass-border);
-  box-shadow: var(--glass-shadow), var(--glass-specular);
+  background: #101c30;
+  border: 2px solid transparent;
   color: var(--text-secondary);
   font-size: 19px;
   font-weight: 700;
@@ -345,8 +340,6 @@ body.tv-body {
   align-items: center;
   cursor: pointer;
   flex-shrink: 0;
-  will-change: transform;
-  transition: transform 0.08s ease;
   contain: content;
 }
 
@@ -364,7 +357,6 @@ body.tv-body {
   background: var(--sky-glass-active);
   color: #fff;
   border-color: rgba(0, 178, 254, 0.5);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(0, 240, 255, 0.3);
 }
 
 .group-item.active .item-count {
@@ -374,11 +366,9 @@ body.tv-body {
 }
 
 .group-item.focused {
-  background: linear-gradient(135deg, rgba(0, 178, 254, 0.3) 0%, rgba(10, 24, 52, 0.95) 100%);
+  background: #123d62;
   border: var(--glass-border-focus);
-  box-shadow: var(--sky-glow-focus), var(--glass-specular-focus);
   color: #fff;
-  transform: scale(1.02);
   z-index: 2;
 }
 
@@ -423,19 +413,14 @@ body.tv-body {
   gap: 20px;
   padding: 16px 24px;
   border-radius: 18px;
-  background: var(--sky-glass-surface);
-  border: var(--glass-border);
-  box-shadow: var(--glass-shadow), var(--glass-specular);
+  background: #101c30;
+  border: 2px solid transparent;
   cursor: pointer;
   position: relative;
   min-height: 84px;
   height: 84px;
   flex-shrink: 0;
-  will-change: transform;
-  transition: transform 0.08s ease;
   contain: content;
-  content-visibility: auto;
-  contain-intrinsic-size: 84px;
 }
 
 .channel-item.active-playing {
@@ -451,15 +436,12 @@ body.tv-body {
   bottom: 14px;
   width: 5px;
   border-radius: 0 4px 4px 0;
-  background: var(--sky-spectrum);
-  box-shadow: 0 0 10px var(--sky-cyan);
+  background: var(--sky-cyan);
 }
 
 .channel-item.focused {
-  background: linear-gradient(135deg, rgba(0, 178, 254, 0.28) 0%, rgba(12, 26, 54, 0.96) 100%);
+  background: #123d62;
   border: var(--glass-border-focus);
-  box-shadow: var(--sky-glow-focus), var(--glass-specular-focus);
-  transform: scale(1.015);
   z-index: 2;
 }
 
@@ -471,7 +453,6 @@ body.tv-body {
   min-width: 55px;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 14px rgba(0, 240, 255, 0.4);
 }
 
 .channel-logo-wrapper {
@@ -483,7 +464,6 @@ body.tv-body {
   justify-content: center;
   background: rgba(4, 9, 20, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   padding: 5px;
   flex-shrink: 0;
@@ -493,7 +473,6 @@ body.tv-body {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
 }
 
 .channel-text-info {
@@ -522,7 +501,6 @@ body.tv-body {
 
 .channel-item.focused .channel-name {
   color: #fff;
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
 }
 
 .channel-epg-info {
@@ -541,22 +519,6 @@ body.tv-body {
 
 .channel-item.focused .epg-now-text {
   color: #e0edff;
-}
-
-.epg-mini-bar {
-  width: 100%;
-  height: 5px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.epg-mini-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--sky-royal-blue), var(--sky-cyan));
-  box-shadow: 0 0 8px var(--sky-cyan);
-  border-radius: 3px;
-  transition: width 0.3s ease;
 }
 
 /* Colonna 3: Preview Column & Scheda Dettagli EPG */
@@ -602,22 +564,15 @@ body.tv-body {
 .live-dot {
   color: #ff334b;
   font-size: 14px;
-  animation: pulseLive 1.4s infinite;
-}
-
-@keyframes pulseLive {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
 }
 
 /* Scheda Dettagli Canale Evidenziato */
 .focused-channel-card {
   flex: 1;
   min-height: 0;
-  background: var(--sky-glass-surface);
+  background: #101c30;
   border: var(--glass-border);
   border-radius: 20px;
-  box-shadow: var(--glass-shadow), var(--glass-specular);
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
@@ -762,7 +717,6 @@ body.tv-body {
 .card-progress-fill {
   height: 100%;
   background: var(--sky-spectrum);
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
 }
 
 .card-desc {
@@ -1144,7 +1098,6 @@ body.tv-body {
   background: var(--sky-spectrum);
   box-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
   border-radius: 3px;
-  transition: width 0.5s ease;
 }
 
 .osd-epg-next {
@@ -1554,8 +1507,6 @@ body.tv-body {
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
-  will-change: transform;
-  transition: transform 0.08s ease;
 }
 
 .guide-prog-item.live {
@@ -1578,10 +1529,8 @@ body.tv-body {
 }
 
 .guide-prog-item.focused {
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.25) 0%, rgba(0, 85, 255, 0.35) 100%) !important;
+  background: #123d62;
   border-color: var(--sky-cyan) !important;
-  box-shadow: 0 0 0 2px var(--sky-cyan), 0 0 22px rgba(0, 240, 255, 0.6) !important;
-  transform: scale(1.02);
   z-index: 10;
 }
 
@@ -1608,7 +1557,6 @@ body.tv-body {
   left: 0;
   height: 3px;
   background: var(--sky-cyan);
-  box-shadow: 0 0 8px var(--sky-cyan);
 }
 
 /* Footer Guida TV: Preview Dettaglio Programma Evidenziato */

@@ -154,6 +154,8 @@
     // Aggiornamento EPG periodico ogni 60s
     state.epgTimer = setInterval(() => {
       updateEpgDisplay();
+      updateChannelsMiniEpg();
+      scheduleFocusedChannelDetails();
     }, 60000);
   }
 
@@ -162,8 +164,8 @@
       const now = new Date();
       const h = String(now.getHours()).padStart(2, '0');
       const m = String(now.getMinutes()).padStart(2, '0');
-      if (el.clock) el.clock.textContent = `${h}:${m}`;
-      if (el.guideClock) el.guideClock.textContent = `${h}:${m}`;
+      if (el.clock && el.clock.textContent !== `${h}:${m}`) el.clock.textContent = `${h}:${m}`;
+      if (el.guideClock && el.guideClock.textContent !== `${h}:${m}`) el.guideClock.textContent = `${h}:${m}`;
     };
     update();
     setInterval(update, 1000);
@@ -240,6 +242,7 @@
       }
       updateEpgDisplay();
       updateChannelsMiniEpg();
+      scheduleFocusedChannelDetails();
     } catch (e) {
       console.warn('[TvApp] EPG non disponibile:', e.message);
     }
@@ -247,22 +250,12 @@
 
   function updateChannelsMiniEpg() {
     if (!el.channelsList || !state.filteredChannels.length) return;
-    // Aggiorna solo i canali visibili a schermo per eliminare centinaia di query DOM lente su webOS
-    const scroll = el.channelsList.scrollTop || 0;
-    const viewHeight = 620;
-    const startIdx = Math.max(0, Math.floor((scroll - 100) / 94));
-    const endIdx = Math.min(state.filteredChannels.length - 1, Math.ceil((scroll + viewHeight + 100) / 94));
-
-    for (let idx = startIdx; idx <= endIdx; idx++) {
-      const item = document.getElementById(`channel-item-${idx}`);
-      if (!item) continue;
-      const ch = state.filteredChannels[idx];
-      if (!ch) continue;
-      const epgInfo = getEpgForChannel(ch);
-      const textEl = item.querySelector('.epg-now-text');
-      const barEl = item.querySelector('.epg-mini-bar-fill');
-      if (textEl && textEl.textContent !== epgInfo.nowTitle) textEl.textContent = epgInfo.nowTitle;
-      if (barEl) barEl.style.width = `${epgInfo.progress}%`;
+    if (!state.overlayVisible) return;
+    for (const item of virtualPoolElements) {
+      const ch = state.filteredChannels[Number(item.dataset.channelIndex)];
+      if (!ch || !item._parts) continue;
+      const title = getEpgForChannel(ch).nowTitle;
+      if (item._parts.epg.textContent !== title) item._parts.epg.textContent = title;
     }
   }
 
@@ -343,27 +336,32 @@
   const ROW_HEIGHT = 94; // 84px card height + 10px gap
   let virtualPoolElements = [];
   let currentWindowStart = -1;
+  let detailsTimer = null;
 
   function initVirtualChannelPool() {
     if (!el.channelsList) return;
+    clearTimeout(detailsTimer);
     el.channelsList.innerHTML = '';
+    el.channelsList.scrollTop = 0;
     virtualPoolElements = [];
     currentWindowStart = -1;
 
     const totalHeight = state.filteredChannels.length * ROW_HEIGHT;
     const spacer = document.createElement('div');
     spacer.id = 'channels-virtual-spacer';
-    spacer.style.cssText = `position: relative; width: 100%; height: ${totalHeight}px; min-height: 100%; pointer-events: none;`;
+    spacer.style.cssText = `position: relative; width: 100%; height: ${totalHeight}px; min-height: 100%; flex-shrink: 0; pointer-events: none;`;
 
     const poolContainer = document.createElement('div');
     poolContainer.id = 'channels-virtual-pool';
-    poolContainer.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; display: flex; flex-direction: column; gap: 10px; will-change: transform; pointer-events: auto;';
+    poolContainer.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; pointer-events: auto;';
 
-    const count = Math.min(VIRTUAL_POOL_SIZE, state.filteredChannels.length);
+    const poolSize = Math.max(VIRTUAL_POOL_SIZE, Math.ceil((el.channelsList.clientHeight || 620) / ROW_HEIGHT) + 4);
+    const count = Math.min(poolSize, state.filteredChannels.length);
     for (let i = 0; i < count; i++) {
       const item = document.createElement('div');
       item.className = 'channel-item';
       item.dataset.poolIdx = i;
+      item.style.cssText = 'position: absolute; left: 0; width: 100%;';
 
       item.innerHTML = `
         <span class="channel-num">-</span>
@@ -376,12 +374,16 @@
           </div>
           <div class="channel-epg-info">
             <span class="epg-now-text">Caricamento guida...</span>
-            <div class="epg-mini-bar">
-              <div class="epg-mini-bar-fill" style="width: 0%;"></div>
-            </div>
           </div>
         </div>
       `;
+
+      item._parts = {
+        number: item.querySelector('.channel-num'),
+        logo: item.querySelector('.channel-logo-img'),
+        name: item.querySelector('.channel-name'),
+        epg: item.querySelector('.epg-now-text')
+      };
 
       item.addEventListener('click', () => {
         const idx = parseInt(item.dataset.channelIndex, 10);
@@ -402,20 +404,30 @@
   function updateVirtualChannels(forceRedraw = false) {
     if (!el.channelsList || !state.filteredChannels.length || !virtualPoolElements.length) return;
 
-    const maxStart = Math.max(0, state.filteredChannels.length - VIRTUAL_POOL_SIZE);
-    const targetStart = Math.max(0, Math.min(maxStart, state.focusedChannelIdx - 4));
-    const poolContainer = document.getElementById('channels-virtual-pool');
+    // Read geometry before DOM writes, using the actual viewport height.
+    const currentScroll = el.channelsList.scrollTop || 0;
+    const containerHeight = el.channelsList.clientHeight || 620;
+    const targetTop = state.focusedChannelIdx * ROW_HEIGHT;
+    let nextScroll = currentScroll;
+    if (targetTop < currentScroll + ROW_HEIGHT) {
+      nextScroll = Math.max(0, targetTop - ROW_HEIGHT);
+    } else if (targetTop + ROW_HEIGHT > currentScroll + containerHeight - ROW_HEIGHT) {
+      nextScroll = targetTop + ROW_HEIGHT * 2 - containerHeight;
+    }
+    nextScroll = Math.min(nextScroll, Math.max(0, state.filteredChannels.length * ROW_HEIGHT - containerHeight));
+    const maxStart = Math.max(0, state.filteredChannels.length - virtualPoolElements.length);
+    const targetStart = Math.max(0, Math.min(maxStart, Math.floor(nextScroll / ROW_HEIGHT) - 2));
 
     const windowChanged = (targetStart !== currentWindowStart) || forceRedraw;
     if (windowChanged) {
       currentWindowStart = targetStart;
-      if (poolContainer) {
-        poolContainer.style.transform = `translateY(${targetStart * ROW_HEIGHT}px)`;
-      }
 
       for (let i = 0; i < virtualPoolElements.length; i++) {
-        const item = virtualPoolElements[i];
         const chIdx = targetStart + i;
+        // Ring buffer: retain the other 13 rows, their logos and their EPG text.
+        const item = virtualPoolElements[chIdx % virtualPoolElements.length];
+        if (!forceRedraw && Number(item.dataset.channelIndex) === chIdx) continue;
+        item.style.top = `${chIdx * ROW_HEIGHT}px`;
         const ch = state.filteredChannels[chIdx];
         if (!ch) {
           item.style.display = 'none';
@@ -426,11 +438,7 @@
         item.dataset.index = chIdx;
         item.id = `channel-item-${chIdx}`;
 
-        const numEl = item.querySelector('.channel-num');
-        const logoEl = item.querySelector('.channel-logo-img');
-        const nameEl = item.querySelector('.channel-name');
-        const epgTextEl = item.querySelector('.epg-now-text');
-        const epgBarEl = item.querySelector('.epg-mini-bar-fill');
+        const { number: numEl, logo: logoEl, name: nameEl, epg: epgTextEl } = item._parts;
 
         if (numEl) numEl.textContent = ch.lcn || (chIdx + 1);
         if (nameEl) nameEl.textContent = ch.customTitle || ch.title || 'Canale';
@@ -443,7 +451,6 @@
 
         const epgInfo = getEpgForChannel(ch);
         if (epgTextEl) epgTextEl.textContent = epgInfo.nowTitle;
-        if (epgBarEl) epgBarEl.style.width = `${epgInfo.progress}%`;
       }
     }
 
@@ -466,32 +473,25 @@
       if (isFocused) currentFocusedChannelEl = item;
     }
 
-    // Allinea scrollTop del contenitore con il canale attivo per centratura visiva perfetta
-    const targetTop = state.focusedChannelIdx * ROW_HEIGHT;
-    const currentScroll = el.channelsList.scrollTop || 0;
-    const containerHeight = 620;
-
-    if (targetTop < currentScroll + ROW_HEIGHT) {
-      el.channelsList.scrollTop = Math.max(0, targetTop - ROW_HEIGHT);
-    } else if (targetTop + ROW_HEIGHT > currentScroll + containerHeight - ROW_HEIGHT) {
-      el.channelsList.scrollTop = targetTop + ROW_HEIGHT * 2 - containerHeight;
-    }
+    if (nextScroll !== currentScroll) el.channelsList.scrollTop = nextScroll;
 
     // Aggiorna scheda dettagli canale evidenziato (Colonna 3)
     if (state.filteredChannels.length && state.focusedChannelIdx >= 0) {
-      updateFocusedChannelDetails(state.filteredChannels[state.focusedChannelIdx]);
+      scheduleFocusedChannelDetails();
     }
   }
 
   function renderChannels() {
     if (!el.channelsList) return;
     if (!state.filteredChannels.length) {
+      clearTimeout(detailsTimer);
+      virtualPoolElements = [];
+      currentWindowStart = -1;
       el.channelsList.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted); font-size: 18px;">Nessun canale disponibile in questa categoria.</div>';
       return;
     }
     initVirtualChannelPool();
     updateVirtualChannels(true);
-    scrollFocusedIntoView();
   }
 
   function getEpgForChannel(ch) {
@@ -818,8 +818,11 @@
   // Aggiornamento O(1) focus visivo e scroll matematico ultra-rapido (senza layout thrashing)
   function updateFocusVisuals() {
     if (state.focusZone === 'channels') {
+      if (currentFocusedGroupEl) currentFocusedGroupEl.classList.remove('focused');
       updateVirtualChannels(false);
     } else if (state.focusZone === 'groups') {
+      clearTimeout(detailsTimer);
+      if (currentFocusedChannelEl) currentFocusedChannelEl.classList.remove('focused');
       const target = (el.groupsList && el.groupsList.children ? el.groupsList.children[state.focusedGroupIdx] : null);
       if (currentFocusedGroupEl && currentFocusedGroupEl !== target) {
         currentFocusedGroupEl.classList.remove('focused');
@@ -866,9 +869,10 @@
       }
       setFocusZone('channels');
       if (state.filteredChannels.length && state.focusedChannelIdx >= 0) {
-        updateFocusedChannelDetails(state.filteredChannels[state.focusedChannelIdx]);
+        scheduleFocusedChannelDetails();
       }
     } else {
+      clearTimeout(detailsTimer);
       el.overlay.classList.add('hidden');
       if (el.videoContainer) {
         el.videoContainer.classList.remove('pip-mode');
@@ -879,6 +883,16 @@
   // -----------------------------------------------------------
   // SCHEDA DETTAGLI CANALE EVIDENZIATO (COLONNA PREVIEW)
   // -----------------------------------------------------------
+  function scheduleFocusedChannelDetails() {
+    clearTimeout(detailsTimer);
+    if (!state.overlayVisible || state.focusZone !== 'channels') return;
+    detailsTimer = setTimeout(() => {
+      if (state.overlayVisible && state.focusZone === 'channels') {
+        updateFocusedChannelDetails(state.filteredChannels[state.focusedChannelIdx]);
+      }
+    }, 160);
+  }
+
   function updateFocusedChannelDetails(channel) {
     if (!el.focusedCard || !channel) return;
 
@@ -889,7 +903,7 @@
     const logoSrc = channel.customLogo || channel.logo;
     if (el.cardLogo) {
       if (logoSrc) {
-        el.cardLogo.src = logoSrc;
+        if (el.cardLogo.getAttribute('src') !== logoSrc) el.cardLogo.src = logoSrc;
         el.cardLogo.style.display = 'block';
       } else {
         el.cardLogo.style.display = 'none';

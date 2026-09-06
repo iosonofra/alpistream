@@ -191,6 +191,30 @@ class TvPlayer {
     return null;
   }
 
+  usesWarp(channel) {
+    const url = channel.url || '';
+    if (channel.source === 'htsport' || /htsport/i.test(`${channel.group || ''} ${channel.customGroup || ''}`) ||
+        /htsport|tvnow/i.test(url)) return false;
+    return channel.useWarp === true || ['warp_direct', 'ffmpeg_copy'].includes(channel.streamMode) ||
+      /WARP/i.test(`${channel.title || ''} ${channel.customTitle || ''}`) || /asn(?:%3A|:)13335/i.test(url);
+  }
+
+  ffmpegUrl(channel) {
+    const params = new URLSearchParams();
+    if (this.authToken) params.set('token', this.authToken);
+    if (this.usesWarp(channel)) params.set('warp', '1');
+    let path = '/stream/mpd';
+    if (channel.id) {
+      path += `/${encodeURIComponent(channel.id)}.ts`;
+    } else {
+      params.set('url', (channel.url || '').split('|')[0]);
+      const key = channel.clearkey || (channel.kodi_props || {})['inputstream.adaptive.license_key'];
+      if (key) params.set('key', key);
+      if (channel.headers) params.set('headers', channel.headers);
+    }
+    return `${this.serverBase}${path}${params.toString() ? '?' + params.toString() : ''}`;
+  }
+
   resolveUrl(channel) {
     const aceHash = this.extractAceHash(channel);
     const auth = this.getAuthParam();
@@ -202,6 +226,33 @@ class TvPlayer {
 
     let url = (channel.url || '').trim();
     if (!url) return '';
+
+    // Catalog entries contain source manifests, unlike the already routed M3U export.
+    const props = channel.kodi_props || {};
+    const key = channel.clearkey || props['inputstream.adaptive.license_key'];
+    const isDash = /\.mpd(?:[?#|]|$)/i.test(url) || props['inputstream.adaptive.manifest_type'] === 'mpd' ||
+      (key && !['0000', '0:0', '0'].includes(String(key).trim()));
+    if (channel.streamMode === 'ffmpeg_copy' || channel.mpdProxy === true ||
+        (channel.id && channel.id.endsWith('_ffmpeg')) || isDash) {
+      return this.ffmpegUrl(channel);
+    }
+
+    if (this.usesWarp(channel) && !url.startsWith('/stream/') && !url.includes('/api/stream/proxy')) {
+      const parts = url.split('|');
+      const params = new URLSearchParams({ url: parts[0], warp: '1' });
+      if (this.authToken) params.set('token', this.authToken);
+      // The TV cannot set these CDN request headers on a native video element.
+      const sourceHeaders = channel.headers || parts[1] || '';
+      const headers = typeof sourceHeaders === 'string' ? new URLSearchParams(sourceHeaders) : sourceHeaders;
+      const addHeader = (value, name) => {
+        const target = { referer: 'referer', origin: 'origin', 'user-agent': 'ua' }[name.toLowerCase()];
+        if (target) params.set(target, value);
+      };
+      if (headers instanceof URLSearchParams) headers.forEach(addHeader);
+      else Object.keys(headers).forEach(name => addHeader(headers[name], name));
+      const isHls = /\.m3u8(?:[?#]|$)/i.test(parts[0]) || props['inputstream.adaptive.manifest_type'] === 'hls';
+      return `${this.serverBase}/api/stream/proxy${isHls ? '.m3u8' : ''}?${params}`;
+    }
 
     // Se l'URL è relativo (/stream/...), risolvilo rispetto all'indirizzo server iosonofratv
     if (url.startsWith('/')) {
@@ -239,7 +290,9 @@ class TvPlayer {
       channel.mpdProxy === true ||
       (channel.id && channel.id.endsWith('_ffmpeg')) ||
       streamUrl.includes('/stream/mpd/') ||
-      streamUrl.endsWith('.ts');
+      /\.ts(?:[?#|]|$)/i.test(channel.url || '') ||
+      /\.ts(?:[?#]|$)/i.test(streamUrl) ||
+      streamUrl.startsWith(`${this.serverBase}/stream/mpd?`);
 
     const isMpdOrDrm = !isMpegTs && (
       streamUrl.includes('.mpd') ||
@@ -254,8 +307,7 @@ class TvPlayer {
     }
 
     if (isMpdOrDrm) {
-      const auth = this.getAuthParam();
-      const fallbackUrl = `${this.serverBase}/stream/mpd/${channel.id}.ts${auth}`;
+      const fallbackUrl = this.ffmpegUrl(channel);
       console.log('[TvPlayer] Canale MPD/DRM rilevato, avvio diretto FFmpeg stream copy:', fallbackUrl);
       this.playMpegTs(fallbackUrl);
       return;
@@ -479,8 +531,7 @@ class TvPlayer {
         (ch.url && /\.mpd(?:[?#]|$)/i.test(ch.url)) ||
         (ch.kodi_props && ch.kodi_props['inputstream.adaptive.manifest_type'] === 'mpd');
       if (isDash && ch.streamMode !== 'ffmpeg_copy' && ch.id && !ch.id.endsWith('_ffmpeg')) {
-        const auth = this.getAuthParam();
-        const fallbackUrl = `${this.serverBase}/stream/mpd/${ch.id}.ts${auth}`;
+        const fallbackUrl = this.ffmpegUrl(ch);
         console.log('[TvPlayer] Auto-Fallback attivo verso FFmpeg Stream Copy centralizzato:', fallbackUrl);
         this.onStatusChange('loading', { channel: ch, fallback: true });
         this.playMpegTs(fallbackUrl);

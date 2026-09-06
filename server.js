@@ -24,6 +24,7 @@ try {
 }
 
 const storage = require('./services/storage');
+const { channelUsesWarp, rewriteWarpPlaylist } = require('./services/stream-routing');
 const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
 const epgManager = require('./services/epg');
 const eventsManager = require('./services/events');
@@ -286,6 +287,7 @@ app.get('/api/channels', (req, res) => {
   const total = all.length;
   const start = isAll ? 0 : (pageNum - 1) * limitNum;
   const items = isAll ? all : all.slice(start, start + limitNum);
+  const routingConfig = storage.getConfig();
 
   res.json({
     total,
@@ -293,7 +295,7 @@ app.get('/api/channels', (req, res) => {
     limit: limitNum,
     totalPages: isAll ? 1 : Math.ceil(total / limitNum),
     groups,
-    channels: items
+    channels: items.map(ch => ({ ...ch, useWarp: channelUsesWarp(ch, routingConfig) }))
   });
 });
 
@@ -667,20 +669,10 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
         const host = req.get('host');
         const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
         const baseUrl = `${protocol}://${host}`;
-        let baseDir = url;
-        if (baseDir.includes('?')) baseDir = baseDir.split('?')[0];
-        const lastSlash = baseDir.lastIndexOf('/');
-        baseDir = lastSlash !== -1 ? baseDir.substring(0, lastSlash + 1) : '';
-
-        m3u8Str = m3u8Str.replace(/^(?!#)(.+)$/gm, (m) => {
-          const absUrl = (m.startsWith('http://') || m.startsWith('https://')) ? m : `${baseDir}${m}`;
-          const p = new URLSearchParams({ url: absUrl, warp: '1' });
-          if (referer) p.set('referer', referer);
-          if (origin) p.set('origin', origin);
-          if (ua) p.set('ua', ua);
-          const isSubM3u8 = absUrl.includes('.m3u8');
-          const proxyEndpoint = isSubM3u8 ? '/api/stream/proxy.m3u8' : '/api/stream/proxy';
-          return `${baseUrl}${proxyEndpoint}?${p.toString()}`;
+        // Keys, initialization segments and alternate tracks must also cross WARP.
+        const manifestUrl = response.request?.res?.responseUrl || url;
+        m3u8Str = rewriteWarpPlaylist(m3u8Str, manifestUrl, baseUrl, {
+          referer, origin, ua, token: req.query.token
         });
 
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
