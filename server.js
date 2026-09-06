@@ -226,17 +226,18 @@ app.get('/api/channels', (req, res) => {
   }
 
   // Paginazione
+  const isAll = limit === 'all' || limit === '0' || req.query.all === '1' || req.query.all === 'true';
   const pageNum = parseInt(page, 10) || 1;
-  const limitNum = parseInt(limit, 10) || 50;
+  const limitNum = isAll ? all.length : (parseInt(limit, 10) || 50);
   const total = all.length;
-  const start = (pageNum - 1) * limitNum;
-  const items = all.slice(start, start + limitNum);
+  const start = isAll ? 0 : (pageNum - 1) * limitNum;
+  const items = isAll ? all : all.slice(start, start + limitNum);
 
   res.json({
     total,
-    page: pageNum,
+    page: isAll ? 1 : pageNum,
     limit: limitNum,
-    totalPages: Math.ceil(total / limitNum),
+    totalPages: isAll ? 1 : Math.ceil(total / limitNum),
     groups,
     channels: items
   });

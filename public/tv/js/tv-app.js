@@ -128,11 +128,12 @@
       const headers = {};
       if (state.authToken) headers['x-auth-token'] = state.authToken;
 
-      const res = await fetch(`${state.serverBaseClean()}/api/channels`, { headers });
+      const res = await fetch(`${state.serverBaseClean()}/api/channels?limit=all&status=enabled`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      state.channels = (Array.isArray(data) ? data : []).filter(c => c && c.enabled !== false);
+      const list = Array.isArray(data) ? data : (data.channels || []);
+      state.channels = list.filter(c => c && c.enabled !== false);
       if (el.channelCounter) el.channelCounter.textContent = `${state.channels.length} canali`;
 
       // Estrai gruppi unici
