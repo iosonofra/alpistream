@@ -11,6 +11,11 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const CHANNELS_FILE = path.join(DATA_DIR, 'channels.json');
 const CUSTOM_CHANNELS_FILE = path.join(DATA_DIR, 'custom_channels.json');
 
+// File shadow non tracciati da Git per garantire persistenza assoluta durante aggiornamenti
+const USER_CONFIG_FILE = path.join(DATA_DIR, 'user_config.json');
+const USER_CHANNELS_FILE = path.join(DATA_DIR, 'user_channels.json');
+const USER_CUSTOM_CHANNELS_FILE = path.join(DATA_DIR, 'user_custom_channels.json');
+
 const DEFAULT_CONFIG = {
   port: 3000,
   authToken: '', // Optional token for URL access
@@ -93,6 +98,53 @@ function writeJsonFile(filePath, data) {
   }
 }
 
+// Auto-Restore e persistenza garantita impostazioni utente tra aggiornamenti Git
+function initPersistentStorage() {
+  try {
+    // 1. Ripristino / Backup config
+    if (fs.existsSync(USER_CONFIG_FILE)) {
+      const userCfg = readJsonFile(USER_CONFIG_FILE, null);
+      if (userCfg && typeof userCfg === 'object') {
+        const current = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
+        const merged = { ...DEFAULT_CONFIG, ...current, ...userCfg };
+        writeJsonFile(CONFIG_FILE, merged);
+      }
+    } else if (fs.existsSync(CONFIG_FILE)) {
+      const current = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
+      writeJsonFile(USER_CONFIG_FILE, current);
+    }
+
+    // 2. Ripristino / Backup canali custom
+    if (fs.existsSync(USER_CUSTOM_CHANNELS_FILE)) {
+      const userCustom = readJsonFile(USER_CUSTOM_CHANNELS_FILE, null);
+      if (Array.isArray(userCustom) && userCustom.length > 0) {
+        writeJsonFile(CUSTOM_CHANNELS_FILE, userCustom);
+      }
+    } else if (fs.existsSync(CUSTOM_CHANNELS_FILE)) {
+      const current = readJsonFile(CUSTOM_CHANNELS_FILE, []);
+      if (current.length > 0) writeJsonFile(USER_CUSTOM_CHANNELS_FILE, current);
+    }
+
+    // 3. Ripristino / Backup canali estratti
+    if (fs.existsSync(USER_CHANNELS_FILE)) {
+      const userChs = readJsonFile(USER_CHANNELS_FILE, null);
+      if (Array.isArray(userChs) && userChs.length > 0) {
+        const current = readJsonFile(CHANNELS_FILE, []);
+        if (!current || current.length === 0) {
+          writeJsonFile(CHANNELS_FILE, userChs);
+        }
+      }
+    } else if (fs.existsSync(CHANNELS_FILE)) {
+      const current = readJsonFile(CHANNELS_FILE, []);
+      if (current.length > 0) writeJsonFile(USER_CHANNELS_FILE, current);
+    }
+  } catch (err) {
+    console.warn('[Storage] Errore inizializzazione storage persistente:', err.message);
+  }
+}
+
+initPersistentStorage();
+
 function getGroupOrder() {
   const cfg = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
   return Array.isArray(cfg.groupOrder) ? cfg.groupOrder : [];
@@ -101,6 +153,7 @@ function getGroupOrder() {
 function saveGroupOrder(orderList) {
   const cfg = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
   cfg.groupOrder = Array.isArray(orderList) ? orderList : [];
+  writeJsonFile(USER_CONFIG_FILE, cfg);
   return writeJsonFile(CONFIG_FILE, cfg);
 }
 
@@ -112,6 +165,7 @@ function getChannelLcnMap() {
 function saveChannelLcnMap(map) {
   const cfg = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
   cfg.channelLcnMap = (map && typeof map === 'object') ? map : {};
+  writeJsonFile(USER_CONFIG_FILE, cfg);
   return writeJsonFile(CONFIG_FILE, cfg);
 }
 
@@ -130,6 +184,7 @@ function renameGroup(oldName, newName) {
   });
   if (updatedChannelsCount > 0) {
     writeJsonFile(CHANNELS_FILE, channels);
+    writeJsonFile(USER_CHANNELS_FILE, channels);
   }
 
   // 2. Aggiorna canali custom
@@ -143,6 +198,7 @@ function renameGroup(oldName, newName) {
   });
   if (updatedCustomCount > 0) {
     writeJsonFile(CUSTOM_CHANNELS_FILE, custom);
+    writeJsonFile(USER_CUSTOM_CHANNELS_FILE, custom);
   }
 
   // 3. Aggiorna groupOrder in config
@@ -150,6 +206,7 @@ function renameGroup(oldName, newName) {
   if (Array.isArray(cfg.groupOrder)) {
     cfg.groupOrder = cfg.groupOrder.map(g => g === oldName ? newName : g);
     writeJsonFile(CONFIG_FILE, cfg);
+    writeJsonFile(USER_CONFIG_FILE, cfg);
   }
 
   return { success: true, updatedCount: updatedChannelsCount + updatedCustomCount };
@@ -166,12 +223,24 @@ module.exports = {
   saveConfig: (cfg) => {
     const current = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
     const toSave = { ...DEFAULT_CONFIG, ...current, ...cfg };
-    return writeJsonFile(CONFIG_FILE, toSave);
+    writeJsonFile(CONFIG_FILE, toSave);
+    writeJsonFile(USER_CONFIG_FILE, toSave);
+    return true;
   },
   getChannels: () => readJsonFile(CHANNELS_FILE, []),
-  saveChannels: (channels) => writeJsonFile(CHANNELS_FILE, channels),
+  saveChannels: (channels) => {
+    writeJsonFile(CHANNELS_FILE, channels);
+    if (Array.isArray(channels) && channels.length > 0) {
+      writeJsonFile(USER_CHANNELS_FILE, channels);
+    }
+    return true;
+  },
   getCustomChannels: () => readJsonFile(CUSTOM_CHANNELS_FILE, []),
-  saveCustomChannels: (channels) => writeJsonFile(CUSTOM_CHANNELS_FILE, channels),
+  saveCustomChannels: (channels) => {
+    writeJsonFile(CUSTOM_CHANNELS_FILE, channels);
+    writeJsonFile(USER_CUSTOM_CHANNELS_FILE, channels);
+    return true;
+  },
   getGroupOrder,
   saveGroupOrder,
   getChannelLcnMap,
