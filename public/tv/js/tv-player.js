@@ -52,7 +52,7 @@ class TvPlayer {
       this.handlePlaybackError('Errore di decodifica video');
     });
 
-    // Watchdog anti-blocco e anti-desync A/V (attivo ogni secondo durante la riproduzione)
+    // Watchdog anti-blocco e recovery automatico
     if (this.stallCheckTimer) clearInterval(this.stallCheckTimer);
     this.stallCheckTimer = setInterval(() => {
       if (!this.video || this.video.paused || this.video.readyState < 2) return;
@@ -60,19 +60,17 @@ class TvPlayer {
       const curr = this.video.currentTime;
       if (this.lastPlaybackTime !== null && Math.abs(this.lastPlaybackTime - curr) < 0.05) {
         this.frozenSeconds = (this.frozenSeconds || 0) + 1;
-        // Se il tempo è bloccato da oltre 3 secondi ma il buffer è andato avanti (MSE gap)
-        if (this.frozenSeconds >= 3) {
-          if (this.video.buffered && this.video.buffered.length > 0) {
-            const bufEnd = this.video.buffered.end(this.video.buffered.length - 1);
-            if (bufEnd > curr + 0.6) {
-              console.warn(`[TvPlayer Watchdog] Rilevato blocco buffer MSE (currentTime: ${curr.toFixed(2)}, bufEnd: ${bufEnd.toFixed(2)}), sblocco istantaneo verso la diretta.`);
-              this.video.currentTime = Math.max(0, bufEnd - 0.3);
-              this.frozenSeconds = 0;
-              return;
-            }
-          }
-          console.warn('[TvPlayer Watchdog] Riproduzione bloccata, notifica buffering per recovery.');
+        if (this.frozenSeconds === 3) {
+          console.warn('[TvPlayer Watchdog] Riproduzione esitante, sblocco con play()...');
+          this.video.play().catch(() => {});
           this.onStatusChange('buffering', { channel: this.currentChannel });
+        } else if (this.frozenSeconds >= 7) {
+          console.warn('[TvPlayer Watchdog] Riproduzione congelata da 7s, riavvio automatico del canale...');
+          this.frozenSeconds = 0;
+          this.lastPlaybackTime = null;
+          if (this.currentChannel) {
+            this.play(this.currentChannel);
+          }
         }
       } else {
         this.lastPlaybackTime = curr;
@@ -243,13 +241,10 @@ class TvPlayer {
           lazyLoad: false, // Disabilitato per streaming live continuo (evita caduta socket e buffer gap)
           lazyLoadMaxDuration: 0,
           seekType: 'param', // Stream live continuo senza Range headers
-          liveBufferLatencyChasing: true, // Insegui la diretta per prevenire accumulo di buffer e desync A/V
-          liveBufferLatencyMaxLatency: 3.5,
-          liveBufferLatencyMinRemain: 1.0,
-          liveBufferLatencyChasingOnPaused: false,
+          liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60, // Mantieni 60s di storico
-          autoCleanupMinBackwardDuration: 30, // MAI eliminare i blocchi recenti dietro la testina (evita loop-back!)
+          autoCleanupMinBackwardDuration: 15, // Preserva blocchi recenti dietro la testina
           fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
         });
 
@@ -331,13 +326,10 @@ class TvPlayer {
           lazyLoad: false, // Disabilitato per streaming live continuo (evita caduta socket e buffer gap)
           lazyLoadMaxDuration: 0,
           seekType: 'param', // Stream live continuo senza Range headers
-          liveBufferLatencyChasing: true, // Insegui la diretta per prevenire accumulo di buffer e desync A/V
-          liveBufferLatencyMaxLatency: 3.5,
-          liveBufferLatencyMinRemain: 1.0,
-          liveBufferLatencyChasingOnPaused: false,
+          liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60, // Mantieni 60s di storico
-          autoCleanupMinBackwardDuration: 30, // MAI eliminare i blocchi recenti dietro la testina (evita loop-back!)
+          autoCleanupMinBackwardDuration: 15, // Preserva blocchi recenti dietro la testina
           fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
         });
 

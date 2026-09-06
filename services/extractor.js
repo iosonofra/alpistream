@@ -748,7 +748,8 @@ class ExtractorEngine {
                 headers: r.headers || '',
                 enabled: true,
                 useWarp: needsWarp,
-                source: 'resolver'
+                source: 'resolver',
+                myresolve: item.myresolve || ''
               });
             }
           })());

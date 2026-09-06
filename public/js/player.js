@@ -192,12 +192,10 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           enableWorker: false,
           lazyLoad: false,
           seekType: 'param',
-          liveBufferLatencyChasing: true,
-          liveBufferLatencyMaxLatency: 3.5,
-          liveBufferLatencyMinRemain: 1.0,
+          liveBufferLatencyChasing: false,
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60,
-          autoCleanupMinBackwardDuration: 30,
+          autoCleanupMinBackwardDuration: 15,
           fixAudioTimestampGap: true
         });
 
@@ -262,12 +260,10 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           enableWorker: false,
           lazyLoad: false,
           seekType: 'param',
-          liveBufferLatencyChasing: true,
-          liveBufferLatencyMaxLatency: 3.5,
-          liveBufferLatencyMinRemain: 1.0,
+          liveBufferLatencyChasing: false,
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60,
-          autoCleanupMinBackwardDuration: 30,
+          autoCleanupMinBackwardDuration: 15,
           fixAudioTimestampGap: true
         });
 

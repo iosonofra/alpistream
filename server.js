@@ -1249,9 +1249,12 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
       res.end(response.data);
     }
   } catch (err) {
-    console.error(`[DASH Segment Proxy] Errore fetch: ${err.message}`);
+    const status = (err.response && err.response.status) ? err.response.status : 502;
+    if (status !== 404) {
+      console.warn(`[DASH Segment Proxy] Errore fetch (${status}): ${err.message}`);
+    }
     if (!res.headersSent && !res.writableEnded) {
-      res.status(502).send(err.message);
+      res.status(status).send(err.message);
     }
   }
 });
@@ -1322,7 +1325,7 @@ app.get('/internal/mpd', async (req, res) => {
 // Mappa delle sessioni proxy MPD attive condivise (Anti-Buffering & Multi-Client)
 const activeMpdStreams = new Map();
 
-function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
+async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   let targetUrl = '';
   let clearkey = '';
   let headersStr = '';
@@ -1392,6 +1395,50 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
 
   if (!targetUrl) {
     return res.status(400).send('URL MPD o Canale non valido.');
+  }
+
+  // Controllo automatico scadenza token (es. Sky / NowTV _e~<timestamp>_) e rinnovo dinamico on-demand
+  if (targetUrl && /_e~(\d+)_/.test(targetUrl)) {
+    const expMatch = targetUrl.match(/_e~(\d+)_/);
+    const expSeconds = expMatch ? parseInt(expMatch[1], 10) : 0;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (expSeconds > 0 && expSeconds < (nowSeconds + 180)) {
+      console.log(`[MPD ClearKey Proxy] Token in scadenza o scaduto per "${title}" (scaduto ${Math.max(0, nowSeconds - expSeconds)}s fa). Avvio rinnovo on-demand...`);
+      let skyId = '';
+      const urlMatch = targetUrl.match(/channel\(([^)]+)\)/i);
+      if (urlMatch) {
+        skyId = urlMatch[1];
+      } else if (ch && ch.myresolve && ch.myresolve.startsWith('sky@@')) {
+        skyId = ch.myresolve.replace('sky@@', '');
+      }
+      if (skyId) {
+        try {
+          const { NativeResolver } = require('./services/extractor');
+          const freshList = await NativeResolver.resolveSky(skyId);
+          if (freshList && freshList.length > 0 && freshList[0].url) {
+            targetUrl = freshList[0].url;
+            clearkey = freshList[0].clearkey || clearkey;
+            headersStr = freshList[0].headers || headersStr;
+            if (ch) {
+              ch.url = freshList[0].url;
+              ch.clearkey = freshList[0].clearkey || ch.clearkey;
+              ch.headers = freshList[0].headers || ch.headers;
+              const allChs = storage.getChannels();
+              const idx = allChs.findIndex(c => c.id === ch.id);
+              if (idx !== -1) {
+                allChs[idx].url = ch.url;
+                allChs[idx].clearkey = ch.clearkey;
+                allChs[idx].headers = ch.headers;
+                storage.saveChannels(allChs);
+              }
+            }
+            console.log(`[MPD ClearKey Proxy] Token rinnovato con successo per "${title}"!`);
+          }
+        } catch (rErr) {
+          console.warn(`[MPD ClearKey Proxy] Errore rinnovo automatico token per "${title}":`, rErr.message);
+        }
+      }
+    }
   }
 
   // Estrai la chiave a 16 byte (32 caratteri esadecimali)
@@ -1537,28 +1584,26 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
   // Genera sessionId univoco per il proxying dei segmenti DASH
   const sessionId = crypto.createHash('md5').update(streamKey).digest('hex').substring(0, 16);
 
-  if (useWarp) {
-    const reqHeaders = {};
-    if (headersStr) {
-      const pairs = headersStr.split('&');
-      for (const p of pairs) {
-        const [k, ...v] = p.split('=');
-        if (k && v.length) reqHeaders[k.trim()] = v.join('=').trim();
-      }
+  const reqHeaders = {};
+  if (headersStr) {
+    const pairs = headersStr.split('&');
+    for (const p of pairs) {
+      const [k, ...v] = p.split('=');
+      if (k && v.length) reqHeaders[k.trim()] = v.join('=').trim();
     }
-    dashSegmentSessions.set(sessionId, {
-      targetUrl,
-      headers: reqHeaders,
-      useWarp: true,
-      cdnBaseUrl: '',
-      createdAt: Date.now(),
-      lastAccess: Date.now()
-    });
-    console.log(`[MPD ClearKey Proxy] Sessione segmenti DASH registrata (${sessionId}) con Cloudflare WARP`);
   }
+  dashSegmentSessions.set(sessionId, {
+    targetUrl,
+    headers: reqHeaders,
+    useWarp: !!useWarp,
+    cdnBaseUrl: '',
+    createdAt: Date.now(),
+    lastAccess: Date.now()
+  });
+  console.log(`[MPD ClearKey Proxy] Sessione segmenti DASH registrata (${sessionId})${useWarp ? ' con Cloudflare WARP' : ' (Direct HTTP Keep-Alive)'}`);
 
-  // Costruisci URL dell'endpoint interno MPD bufferizzato
-  const internalMpdUrl = `http://127.0.0.1:${PORT}/internal/mpd?url=${encodeURIComponent(targetUrl)}${headersStr ? `&headers=${encodeURIComponent(headersStr)}` : ''}${useWarp ? `&warp=1&sessionId=${sessionId}` : ''}`;
+  // Costruisci URL dell'endpoint interno MPD bufferizzato con sessionId
+  const internalMpdUrl = `http://127.0.0.1:${PORT}/internal/mpd?url=${encodeURIComponent(targetUrl)}${headersStr ? `&headers=${encodeURIComponent(headersStr)}` : ''}&sessionId=${sessionId}${useWarp ? '&warp=1' : ''}`;
 
   // Avvio nuovo processo FFmpeg con parametri anti-buffering e stabilizzazione A/V
   console.log(`[MPD ClearKey Proxy] Avvio nuovo processo FFmpeg per "${title}" (Key: ${keyHex.substring(0, 8)}...${useWarp ? ' | WARP: ON' : ''})...`);
@@ -1718,12 +1763,12 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
 }
 
 // 1. Endpoint MPD Proxy per client IPTV / Kodi / VLC / Smart TV
-app.get(['/stream/mpd/:id.ts', '/stream/mpd/:id', '/stream/mpd', '/stream/clearkey/:id.ts', '/stream/clearkey/:id', '/stream/clearkey'], (req, res) => {
+app.get(['/stream/mpd/:id.ts', '/stream/mpd/:id', '/stream/mpd', '/stream/clearkey/:id.ts', '/stream/clearkey/:id', '/stream/clearkey'], async (req, res) => {
   const rawId = req.params.id || req.query.id || req.query.url;
   const channelId = rawId ? rawId.replace(/\.ts$/i, '') : '';
   const key = req.query.key || req.query.clearkey;
   const headers = req.query.headers;
-  streamMpdClearKey(channelId, key, headers, req, res);
+  await streamMpdClearKey(channelId, key, headers, req, res);
 });
 
 // -------------------------------------------------------------
