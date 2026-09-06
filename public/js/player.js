@@ -196,7 +196,7 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60,
           autoCleanupMinBackwardDuration: 15,
-          fixAudioTimestampGap: true
+          fixAudioTimestampGap: false
         });
 
         mpegPlayer.on(mpegts.Events.ERROR, (t, d, i) => {
@@ -264,7 +264,7 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60,
           autoCleanupMinBackwardDuration: 15,
-          fixAudioTimestampGap: true
+          fixAudioTimestampGap: false
         });
 
         mpegPlayer.on(mpegts.Events.ERROR, (errType, errDetail, errInfo) => {

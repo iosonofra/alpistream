@@ -1114,19 +1114,19 @@ setInterval(() => {
 }, 120000);
 
 // Funzione di livellamento SegmentTimeline e riduzione latenza live (elimina fino a 70-80s di ritardo su FFmpeg e player DASH)
-function trimSegmentTimelineInManifest(manifest, keepCount = 5) {
+function trimSegmentTimelineInManifest(manifest, keepCount = 12) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
 
-  // 1. Inietta o aggiorna suggestedPresentationDelay="PT8S" e riduci timeShiftBufferDepth="PT60S"
+  // 1. Inietta o aggiorna suggestedPresentationDelay="PT10S" e riduci timeShiftBufferDepth="PT120S"
   cleaned = cleaned.replace(/<MPD\b([^>]*)>/i, (match, attrs) => {
     let a = attrs;
     if (a.includes('suggestedPresentationDelay=')) {
-      a = a.replace(/suggestedPresentationDelay="[^"]*"/i, 'suggestedPresentationDelay="PT8S"');
+      a = a.replace(/suggestedPresentationDelay="[^"]*"/i, 'suggestedPresentationDelay="PT10S"');
     } else {
-      a = ` suggestedPresentationDelay="PT8S"${a}`;
+      a = ` suggestedPresentationDelay="PT10S"${a}`;
     }
     if (a.includes('timeShiftBufferDepth=')) {
-      a = a.replace(/timeShiftBufferDepth="[^"]*"/i, 'timeShiftBufferDepth="PT60S"');
+      a = a.replace(/timeShiftBufferDepth="[^"]*"/i, 'timeShiftBufferDepth="PT120S"');
     }
     return `<MPD${a}>`;
   });
@@ -1233,7 +1233,7 @@ function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
 
   // 0. Livellamento live timeline e aggancio rapido sul live edge (elimina il salto indietro di FFmpeg)
-  cleaned = trimSegmentTimelineInManifest(cleaned, 5);
+  cleaned = trimSegmentTimelineInManifest(cleaned, 12);
 
   // 1. Gestione BaseURL per i segmenti
   if (sessionId) {
@@ -1352,7 +1352,18 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
       axiosOpts.httpsAgent = httpsKeepAliveAgent;
     }
 
-    const response = await axios.get(targetSegmentUrl, axiosOpts);
+    let response;
+    try {
+      response = await axios.get(targetSegmentUrl, axiosOpts);
+    } catch (segErr) {
+      const status = segErr.response ? segErr.response.status : 0;
+      if (status !== 404) {
+        await new Promise(r => setTimeout(r, 150));
+        response = await axios.get(targetSegmentUrl, axiosOpts);
+      } else {
+        throw segErr;
+      }
+    }
     if (!res.headersSent && !res.writableEnded) {
       res.writeHead(200, {
         'Content-Type': response.headers['content-type'] || 'video/mp4',
@@ -1705,6 +1716,7 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_on_network_error', '1',
+    '-reconnect_on_http_error', '4xx,5xx',
     '-reconnect_delay_max', '2',
     '-rw_timeout', '15000000',
     '-tcp_nodelay', '1',
@@ -1728,17 +1740,17 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     '-c:v', 'copy',
     '-bsf:v', 'h264_mp4toannexb',
 
-    // Audio: risincronizzazione istantanea continua (evita che l'audio corra avanti rispetto al video)
+    // Audio: normalizzazione timeline continua (elimina i blocchi e desync A/V sui cambi segmento DASH)
     '-c:a', 'aac',
     '-b:a', '128k',
-    '-af', 'aresample=async=1000:min_hard_comp=0.100000:first_pts=0',
+    '-af', 'aresample=async=1',
 
     // Parametri di muxing MPEG-TS a bassa latenza e throughput costante
     '-max_muxing_queue_size', '4096',
     '-flush_packets', '1',
     '-muxdelay', '0.1',
     '-f', 'mpegts',
-    '-mpegts_flags', '+resend_headers+initial_discontinuity',
+    '-mpegts_flags', '+resend_headers',
     '-pcr_period', '20',
     'pipe:1'
   );

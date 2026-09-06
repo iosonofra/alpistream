@@ -24,8 +24,8 @@ test('trimSegmentTimelineInManifest trims large 2-hour timeline and updates star
 
   const result = trimSegmentTimelineInManifest(sample, 4);
 
-  assert.match(result, /suggestedPresentationDelay="PT8S"/);
-  assert.match(result, /timeShiftBufferDepth="PT60S"/);
+  assert.match(result, /suggestedPresentationDelay="PT10S"/);
+  assert.match(result, /timeShiftBufferDepth="PT120S"/);
   assert.match(result, /r="4"/);
   assert.match(result, /startNumber="2439547"/);
   // Timestamp t was updated from 93606607122997 to 93606607122997 + (1870 * 38400000) = 93678415122997
@@ -43,8 +43,8 @@ test('trimSegmentTimelineInManifest handles $Time$ templates without startNumber
 
   const result = trimSegmentTimelineInManifest(sample, 4);
 
-  assert.match(result, /suggestedPresentationDelay="PT8S"/);
-  assert.match(result, /timeShiftBufferDepth="PT60S"/);
+  assert.match(result, /suggestedPresentationDelay="PT10S"/);
+  assert.match(result, /timeShiftBufferDepth="PT120S"/);
   assert.match(result, /r="4"/);
   // t updated: 85857663573120 + ((31 - 4) * 184320) = 85857668549760
   assert.match(result, /t="85857668549760"/);
@@ -70,7 +70,7 @@ test('trimSegmentTimelineInManifest correctly trims multi-tag timelines (e.g. DA
   // Third tag has 5 segments (all kept).
   const result = trimSegmentTimelineInManifest(sample, 5);
 
-  assert.match(result, /suggestedPresentationDelay="PT8S"/);
+  assert.match(result, /suggestedPresentationDelay="PT10S"/);
   assert.match(result, /<S t="1073229799200" d="1200"\s*\/>/);
   assert.match(result, /<S d="1200" r="4"\s*\/>/);
   // The first tag should not be present

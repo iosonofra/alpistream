@@ -351,9 +351,9 @@ class TvPlayer {
           seekType: 'param', // Stream live continuo senza Range headers
           liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
-          autoCleanupMaxBackwardDuration: 30, // Limita memoria occupata sulla TV
-          autoCleanupMinBackwardDuration: 10, // Preserva i keyframe recenti
-          fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
+          autoCleanupMaxBackwardDuration: 60, // Limita memoria occupata sulla TV
+          autoCleanupMinBackwardDuration: 15, // Preserva i keyframe recenti
+          fixAudioTimestampGap: false // Sincronizza i timestamp audio se c'è un gap
         });
 
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
@@ -415,9 +415,9 @@ class TvPlayer {
           seekType: 'param', // Stream live continuo senza Range headers
           liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
-          autoCleanupMaxBackwardDuration: 30, // Limita memoria occupata sulla TV
-          autoCleanupMinBackwardDuration: 10, // Preserva i keyframe recenti
-          fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
+          autoCleanupMaxBackwardDuration: 60, // Limita memoria occupata sulla TV
+          autoCleanupMinBackwardDuration: 15, // Preserva i keyframe recenti
+          fixAudioTimestampGap: false // Sincronizza i timestamp audio se c'è un gap
         });
 
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
