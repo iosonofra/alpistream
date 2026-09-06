@@ -581,7 +581,7 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
         let xml = Buffer.concat(chunks).toString('utf-8');
 
         // 0. Ottimizzazione live latency: livella la SegmentTimeline e inietta suggestedPresentationDelay
-        xml = trimSegmentTimelineInManifest(xml, 8);
+        xml = trimSegmentTimelineInManifest(xml, 25);
 
         // 1. Inietta tag W3C ClearKey UUID affinché tutti i browser (Chrome, Firefox, Safari, Edge) accettino la riproduzione EME
         const clearKeyTag = '<ContentProtection schemeIdUri="urn:uuid:1077efec-c0b2-4d02-ace3-3c1e52e2fb4b" value="ClearKey1.0"/>';
@@ -1114,7 +1114,7 @@ setInterval(() => {
 }, 120000);
 
 // Funzione di livellamento SegmentTimeline e riduzione latenza live (elimina fino a 70-80s di ritardo su FFmpeg e player DASH)
-function trimSegmentTimelineInManifest(manifest, keepCount = 12) {
+function trimSegmentTimelineInManifest(manifest, keepCount = 25) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
 
   // 1. Inietta o aggiorna suggestedPresentationDelay="PT10S", timeShiftBufferDepth="PT120S",
@@ -1244,7 +1244,7 @@ function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
 
   // 0. Livellamento live timeline e aggancio rapido sul live edge (elimina il salto indietro di FFmpeg)
-  cleaned = trimSegmentTimelineInManifest(cleaned, 12);
+  cleaned = trimSegmentTimelineInManifest(cleaned, 25);
 
   // 1. Gestione BaseURL per i segmenti
   if (sessionId) {
