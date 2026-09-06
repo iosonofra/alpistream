@@ -69,13 +69,15 @@ class TvPlayer {
     let frames = null;
     if (typeof this.video.getVideoPlaybackQuality === 'function') {
       const quality = this.video.getVideoPlaybackQuality();
-      frames = quality.totalVideoFrames - quality.droppedVideoFrames;
-    } else if (typeof this.video.webkitDecodedFrameCount === 'number') {
+      if (quality && typeof quality.totalVideoFrames === 'number' && quality.totalVideoFrames > 0) {
+        frames = quality.totalVideoFrames - quality.droppedVideoFrames;
+      }
+    } else if (typeof this.video.webkitDecodedFrameCount === 'number' && this.video.webkitDecodedFrameCount > 0) {
       frames = this.video.webkitDecodedFrameCount;
     }
     // currentTime can keep advancing with audio while the video decoder is stuck.
     const videoStuck = this.video.videoWidth > 0 && frames !== null &&
-      this.lastVideoFrames !== null && frames === this.lastVideoFrames;
+      this.lastVideoFrames !== null && this.lastVideoFrames > 0 && frames === this.lastVideoFrames;
     this.lastVideoFrames = frames;
     this.videoFrozenSeconds = videoStuck ? this.videoFrozenSeconds + 1 : 0;
     this.frozenSeconds = advancing ? 0 : this.frozenSeconds + 1;
@@ -359,7 +361,10 @@ class TvPlayer {
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
           if (session !== this.sessionId) return;
           console.warn('[TvPlayer] Errore mpegts.js AceStream:', type, detail, info);
-          this.fallbackAceToHls(aceHash);
+          const isFatal = /network/i.test(String(type)) || /network/i.test(String(detail)) || (info && info.fatal);
+          if (isFatal) {
+            this.fallbackAceToHls(aceHash);
+          }
         });
 
         this.mpegInstance.attachMediaElement(this.video);
@@ -423,7 +428,10 @@ class TvPlayer {
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
           if (session !== this.sessionId) return;
           console.warn('[TvPlayer] Errore mpegts.js:', type, detail, info);
-          this.handlePlaybackError('Errore flusso MPEG-TS');
+          const isFatal = /network/i.test(String(type)) || /network/i.test(String(detail)) || (info && info.fatal);
+          if (isFatal) {
+            this.handlePlaybackError('Errore flusso MPEG-TS');
+          }
         });
 
         this.mpegInstance.attachMediaElement(this.video);
