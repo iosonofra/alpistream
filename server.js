@@ -577,6 +577,9 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
       response.data.on('end', () => {
         let xml = Buffer.concat(chunks).toString('utf-8');
 
+        // 0. Ottimizzazione live latency: livella la SegmentTimeline e inietta suggestedPresentationDelay
+        xml = trimSegmentTimelineInManifest(xml, 8);
+
         // 1. Inietta tag W3C ClearKey UUID affinché tutti i browser (Chrome, Firefox, Safari, Edge) accettino la riproduzione EME
         const clearKeyTag = '<ContentProtection schemeIdUri="urn:uuid:1077efec-c0b2-4d02-ace3-3c1e52e2fb4b" value="ClearKey1.0"/>';
         if (!xml.includes('1077efec-c0b2-4d02-ace3-3c1e52e2fb4b')) {
@@ -1117,9 +1120,86 @@ setInterval(() => {
   }
 }, 120000);
 
+// Funzione di livellamento SegmentTimeline e riduzione latenza live (elimina fino a 70-80s di ritardo su FFmpeg e player DASH)
+function trimSegmentTimelineInManifest(manifest, keepCount = 5) {
+  let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
+
+  // 1. Inietta o aggiorna suggestedPresentationDelay="PT8S" e riduci timeShiftBufferDepth="PT60S"
+  cleaned = cleaned.replace(/<MPD\b([^>]*)>/i, (match, attrs) => {
+    let a = attrs;
+    if (a.includes('suggestedPresentationDelay=')) {
+      a = a.replace(/suggestedPresentationDelay="[^"]*"/i, 'suggestedPresentationDelay="PT8S"');
+    } else {
+      a = ` suggestedPresentationDelay="PT8S"${a}`;
+    }
+    if (a.includes('timeShiftBufferDepth=')) {
+      a = a.replace(/timeShiftBufferDepth="[^"]*"/i, 'timeShiftBufferDepth="PT60S"');
+    }
+    return `<MPD${a}>`;
+  });
+
+  // 2. Livella le SegmentTimeline per non passare ore di storico a FFmpeg/demuxer
+  cleaned = cleaned.replace(/<SegmentTemplate([\s\S]*?)<\/SegmentTemplate>/gi, (tplMatch) => {
+    if (!tplMatch.includes('<SegmentTimeline>') && !tplMatch.includes('<SegmentTimeline ')) {
+      return tplMatch;
+    }
+
+    const sTagMatch = tplMatch.match(/<S\b[^>]*\br="(\d+)"[^>]*>/i);
+    const startNumMatch = tplMatch.match(/\bstartNumber="(\d+)"/i);
+    let skipped = 0;
+
+    let updatedTpl = tplMatch.replace(/<SegmentTimeline>([\s\S]*?)<\/SegmentTimeline>/gi, (tlMatch, tlContent) => {
+      const allSTags = tlContent.match(/<S\b[\s\S]*?(?:\/>|<\/S>)/gi) || [];
+
+      if (allSTags.length === 1) {
+        const sTag = allSTags[0];
+        const tMatch = sTag.match(/\bt="(\d+)"/i);
+        const dMatch = sTag.match(/\bd="(\d+)"/i);
+        const rMatch = sTag.match(/\br="(\d+)"/i);
+
+        if (dMatch && rMatch) {
+          const r = parseInt(rMatch[1], 10);
+          if (r > keepCount) {
+            const d = BigInt(dMatch[1]);
+            skipped = r - keepCount;
+            const newR = keepCount;
+
+            let newTag = sTag.replace(/\br="\d+"/i, `r="${newR}"`);
+            if (tMatch) {
+              const t = BigInt(tMatch[1]);
+              const newT = t + (BigInt(skipped) * d);
+              newTag = newTag.replace(/\bt="\d+"/i, `t="${newT.toString()}"`);
+            }
+
+            return `<SegmentTimeline>\n          ${newTag}\n        </SegmentTimeline>`;
+          }
+        }
+      } else if (allSTags.length > keepCount) {
+        const kept = allSTags.slice(allSTags.length - keepCount);
+        return `<SegmentTimeline>\n          ${kept.join('\n          ')}\n        </SegmentTimeline>`;
+      }
+
+      return tlMatch;
+    });
+
+    if (skipped > 0 && startNumMatch) {
+      const startNum = parseInt(startNumMatch[1], 10);
+      const newStartNum = startNum + skipped;
+      updatedTpl = updatedTpl.replace(`startNumber="${startNum}"`, `startNumber="${newStartNum}"`);
+    }
+
+    return updatedTpl;
+  });
+
+  return cleaned;
+}
+
 // Funzione di ottimizzazione del manifest MPD per eliminare micro-buffering, stuttering e forzare 1080p full HD
 function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
   let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
+
+  // 0. Livellamento live timeline e aggancio rapido sul live edge (elimina il salto indietro di FFmpeg)
+  cleaned = trimSegmentTimelineInManifest(cleaned, 5);
 
   // 1. Gestione BaseURL per i segmenti
   if (sessionId) {

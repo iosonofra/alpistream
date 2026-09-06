@@ -275,6 +275,7 @@ class NativeResolver {
       const kodiProps = {
         'inputstream': 'inputstream.adaptive',
         'inputstream.adaptive.manifest_type': 'mpd',
+        'inputstream.adaptive.live_delay': '10',
         'inputstream.adaptive.stream_headers': headers,
         'inputstream.adaptive.manifest_headers': headers
       };
@@ -493,7 +494,8 @@ class NativeResolver {
 
         const kodiProps = {
           'inputstream': 'inputstream.adaptive',
-          'inputstream.adaptive.manifest_type': 'mpd'
+          'inputstream.adaptive.manifest_type': 'mpd',
+          'inputstream.adaptive.live_delay': '10'
         };
         if (headers) {
           kodiProps['inputstream.adaptive.stream_headers'] = headers;
@@ -988,7 +990,10 @@ class ExtractorEngine {
           m3u += `#KODIPROP:mimetype=video/mp2t\n`;
           m3u += `#EXTVLCOPT:network-caching=2000\n`;
         } else if (kodiProps && Object.keys(kodiProps).length > 0) {
+          const isKodiMpd = url.includes('.mpd') || kodiProps['inputstream.adaptive.manifest_type'] === 'mpd';
+          let hasLiveDelay = false;
           for (const [k, v] of Object.entries(kodiProps)) {
+            if (k === 'inputstream.adaptive.live_delay') hasLiveDelay = true;
             // Salta chiavi fittizie (0000, 0:0, 0)
             if (k === 'inputstream.adaptive.license_key' && (!v || ['0000', '0:0', '0'].includes(String(v).trim()))) continue;
             if (k === 'inputstream.adaptive.license_type') {
@@ -1006,9 +1011,13 @@ class ExtractorEngine {
 
             m3u += `#KODIPROP:${k}=${cleanVal}\n`;
           }
+          if (isKodiMpd && !hasLiveDelay) {
+            m3u += `#KODIPROP:inputstream.adaptive.live_delay=10\n`;
+          }
         } else if (clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim())) {
           m3u += `#KODIPROP:inputstream=inputstream.adaptive\n`;
           m3u += `#KODIPROP:inputstream.adaptive.manifest_type=mpd\n`;
+          m3u += `#KODIPROP:inputstream.adaptive.live_delay=10\n`;
           m3u += `#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey\n`;
           m3u += `#KODIPROP:inputstream.adaptive.license_key=${clearkey}\n`;
         }

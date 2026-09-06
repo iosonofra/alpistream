@@ -18,6 +18,13 @@ class TvPlayer {
     this.stallCheckTimer = null;
     this.lastPlaybackTime = null;
     this.frozenSeconds = 0;
+    this.sessionId = 0;
+    this.recoveryCount = 0;
+    this.stableSeconds = 0;
+    this.lastVideoFrames = null;
+    this.videoFrozenSeconds = 0;
+    this.started = false;
+    this.lastMediaRecovery = 0;
   }
 
   init(videoEl, serverBaseUrl, onStatusChange) {
@@ -27,19 +34,11 @@ class TvPlayer {
 
     // Eventi video nativi
     this.markPlaying = () => {
-      this.retryCount = 0;
-      this.frozenSeconds = 0;
+      if (!this.currentChannel) return;
       this.onStatusChange('playing', { channel: this.currentChannel });
     };
 
     this.video.addEventListener('playing', () => this.markPlaying());
-    this.video.addEventListener('canplay', () => this.markPlaying());
-    this.video.addEventListener('loadeddata', () => this.markPlaying());
-    this.video.addEventListener('timeupdate', () => {
-      if (this.video && !this.video.paused) {
-        this.markPlaying();
-      }
-    });
 
     this.video.addEventListener('waiting', () => {
       if (this.video && !this.video.paused) {
@@ -48,35 +47,71 @@ class TvPlayer {
     });
 
     this.video.addEventListener('error', (e) => {
+      if (!this.currentChannel || this.switchingEngine || !this.video.error || this.hlsInstance) return;
       console.warn('[TvPlayer] Errore elemento video nativo:', e);
       this.handlePlaybackError('Errore di decodifica video');
     });
 
-    // Watchdog anti-blocco e recovery automatico
-    if (this.stallCheckTimer) clearInterval(this.stallCheckTimer);
-    this.stallCheckTimer = setInterval(() => {
-      if (!this.video || this.video.paused || this.video.readyState < 2) return;
+  }
 
-      const curr = this.video.currentTime;
-      if (this.lastPlaybackTime !== null && Math.abs(this.lastPlaybackTime - curr) < 0.05) {
-        this.frozenSeconds = (this.frozenSeconds || 0) + 1;
-        if (this.frozenSeconds === 3) {
-          console.warn('[TvPlayer Watchdog] Riproduzione esitante, sblocco con play()...');
-          this.video.play().catch(() => {});
-          this.onStatusChange('buffering', { channel: this.currentChannel });
-        } else if (this.frozenSeconds >= 7) {
-          console.warn('[TvPlayer Watchdog] Riproduzione congelata da 7s, riavvio automatico del canale...');
-          this.frozenSeconds = 0;
-          this.lastPlaybackTime = null;
-          if (this.currentChannel) {
-            this.play(this.currentChannel);
-          }
-        }
-      } else {
-        this.lastPlaybackTime = curr;
-        this.frozenSeconds = 0;
+  startWatchdog() {
+    if (this.stallCheckTimer) clearInterval(this.stallCheckTimer);
+    this.stallCheckTimer = setInterval(() => this.checkPlayback(), 1000);
+  }
+
+  checkPlayback() {
+    if (!this.video || !this.currentChannel) return;
+    // A user pause must not restart the channel; initial buffering is still monitored.
+    if (this.started && this.video.paused && !this.video.error) return;
+    const curr = this.video.currentTime;
+    const advancing = this.lastPlaybackTime !== null && curr > this.lastPlaybackTime + 0.05;
+    this.lastPlaybackTime = curr;
+    let frames = null;
+    if (typeof this.video.getVideoPlaybackQuality === 'function') {
+      const quality = this.video.getVideoPlaybackQuality();
+      frames = quality.totalVideoFrames - quality.droppedVideoFrames;
+    } else if (typeof this.video.webkitDecodedFrameCount === 'number') {
+      frames = this.video.webkitDecodedFrameCount;
+    }
+    // currentTime can keep advancing with audio while the video decoder is stuck.
+    const videoStuck = this.video.videoWidth > 0 && frames !== null &&
+      this.lastVideoFrames !== null && frames === this.lastVideoFrames;
+    this.lastVideoFrames = frames;
+    this.videoFrozenSeconds = videoStuck ? this.videoFrozenSeconds + 1 : 0;
+    this.frozenSeconds = advancing ? 0 : this.frozenSeconds + 1;
+    if (advancing && !videoStuck) {
+      this.started = true;
+      this.stableSeconds++;
+      this.markPlaying();
+      if (this.stableSeconds >= 30) {
+        this.retryCount = 0;
+        this.recoveryCount = 0;
       }
-    }, 1000);
+    } else {
+      this.stableSeconds = 0;
+    }
+    const stalled = Math.max(this.frozenSeconds, this.videoFrozenSeconds);
+    if (stalled === 3) this.onStatusChange('buffering', { channel: this.currentChannel });
+    if (stalled >= (this.started ? 12 : 45)) {
+      this.restartPlayback('Flusso bloccato: nessun avanzamento audio/video');
+    }
+  }
+
+  restartPlayback(msg) {
+    if (!this.currentChannel) return;
+    if (this.recoveryCount >= this.maxRetries) {
+      this.failPlayback(msg);
+      return;
+    }
+    this.recoveryCount++;
+    console.warn('[TvPlayer] Recupero completo audio/video:', msg);
+    this.play(this.currentChannel, true);
+  }
+
+  failPlayback(msg) {
+    const channel = this.currentChannel;
+    this.stop();
+    this.onStatusChange('error', { error: msg, channel });
   }
 
   setServerBase(url) {
@@ -91,27 +126,21 @@ class TvPlayer {
     return this.authToken ? `?token=${encodeURIComponent(this.authToken)}` : '';
   }
 
-  async stop() {
+  stop() {
+    this.sessionId++;
+    this.currentChannel = null;
     if (this.stallCheckTimer) {
       clearInterval(this.stallCheckTimer);
       this.stallCheckTimer = null;
     }
     this.lastPlaybackTime = null;
     this.frozenSeconds = 0;
+    this.lastVideoFrames = null;
+    this.videoFrozenSeconds = 0;
+    this.stableSeconds = 0;
+    this.started = false;
+    this.destroyEngines();
 
-    if (this.hlsInstance) {
-      try { this.hlsInstance.destroy(); } catch (e) {}
-      this.hlsInstance = null;
-    }
-    if (this.mpegInstance) {
-      try {
-        this.mpegInstance.pause();
-        this.mpegInstance.unload();
-        this.mpegInstance.detachMediaElement();
-        this.mpegInstance.destroy();
-      } catch (e) {}
-      this.mpegInstance = null;
-    }
     if (this.video) {
       try {
         this.video.pause();
@@ -119,8 +148,25 @@ class TvPlayer {
         this.video.load();
       } catch (e) {}
     }
-    this.currentChannel = null;
     this.fallbackTriggered = false;
+  }
+
+  destroyEngines() {
+    // Invalidate callbacks before destroying either MediaSource owner.
+    this.sessionId++;
+    this.switchingEngine = true;
+    if (this.hlsInstance) {
+      try { this.hlsInstance.destroy(); } catch (e) {}
+      this.hlsInstance = null;
+    }
+    if (this.mpegInstance) {
+      const engine = this.mpegInstance;
+      this.mpegInstance = null;
+      ['pause', 'unload', 'detachMediaElement', 'destroy'].forEach(method => {
+        try { engine[method](); } catch (e) {}
+      });
+    }
+    this.switchingEngine = false;
   }
 
   extractAceHash(channel) {
@@ -164,11 +210,13 @@ class TvPlayer {
     return url;
   }
 
-  async play(channel) {
-    await this.stop();
+  async play(channel, recovering = false) {
+    this.stop();
     this.currentChannel = channel;
     this.fallbackTriggered = false;
     this.retryCount = 0;
+    this.lastMediaRecovery = 0;
+    if (!recovering) this.recoveryCount = 0;
 
     const streamUrl = this.resolveUrl(channel);
     if (!streamUrl) {
@@ -177,6 +225,7 @@ class TvPlayer {
     }
 
     this.onStatusChange('loading', { channel, url: streamUrl });
+    this.startWatchdog();
 
     // 1. Riconoscimento prioritario canali AceStream
     const aceHash = this.extractAceHash(channel);
@@ -227,7 +276,14 @@ class TvPlayer {
   }
 
   playAceStream(aceHash, streamUrl, channel) {
+    this.destroyEngines();
+    const session = this.sessionId;
     console.log('[TvPlayer] Avvio riproduzione AceStream:', aceHash, streamUrl);
+
+    if (streamUrl.includes('manifest.m3u8')) {
+      this.fallbackAceToHls(aceHash);
+      return;
+    }
 
     // Tentativo 1: mpegts.js con type: 'mpegts' forzato (MSE ad alte prestazioni)
     if (window.mpegts && mpegts.isSupported()) {
@@ -243,29 +299,16 @@ class TvPlayer {
           seekType: 'param', // Stream live continuo senza Range headers
           liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
-          autoCleanupMaxBackwardDuration: 60, // Mantieni 60s di storico
-          autoCleanupMinBackwardDuration: 15, // Preserva blocchi recenti dietro la testina
+          autoCleanupMaxBackwardDuration: 30, // Limita memoria occupata sulla TV
+          autoCleanupMinBackwardDuration: 10, // Preserva i keyframe recenti
           fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
         });
 
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
+          if (session !== this.sessionId) return;
           console.warn('[TvPlayer] Errore mpegts.js AceStream:', type, detail, info);
           this.fallbackAceToHls(aceHash);
         });
-
-        if (mpegts.Events.MEDIA_INFO) {
-          this.mpegInstance.on(mpegts.Events.MEDIA_INFO, () => {
-            this.markPlaying();
-          });
-        }
-
-        if (mpegts.Events.STATISTICS_INFO) {
-          this.mpegInstance.on(mpegts.Events.STATISTICS_INFO, (stat) => {
-            if (stat && (stat.decodedFrames > 0 || stat.speed > 0)) {
-              this.markPlaying();
-            }
-          });
-        }
 
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
@@ -291,20 +334,12 @@ class TvPlayer {
     console.log('[TvPlayer] Passaggio a fallback AceStream HLS:', hlsUrl);
     this.onStatusChange('loading', { channel: this.currentChannel, fallback: true });
 
-    if (this.mpegInstance) {
-      try {
-        this.mpegInstance.pause();
-        this.mpegInstance.unload();
-        this.mpegInstance.detachMediaElement();
-        this.mpegInstance.destroy();
-      } catch (e) {}
-      this.mpegInstance = null;
-    }
-
     this.playHls(hlsUrl);
   }
 
   playMpegTs(url) {
+    this.destroyEngines();
+    const session = this.sessionId;
     console.log('[TvPlayer] Avvio riproduzione MPEG-TS:', url);
 
     if (this.video) {
@@ -328,29 +363,16 @@ class TvPlayer {
           seekType: 'param', // Stream live continuo senza Range headers
           liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
-          autoCleanupMaxBackwardDuration: 60, // Mantieni 60s di storico
-          autoCleanupMinBackwardDuration: 15, // Preserva blocchi recenti dietro la testina
+          autoCleanupMaxBackwardDuration: 30, // Limita memoria occupata sulla TV
+          autoCleanupMinBackwardDuration: 10, // Preserva i keyframe recenti
           fixAudioTimestampGap: true // Sincronizza i timestamp audio se c'è un gap
         });
 
         this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
+          if (session !== this.sessionId) return;
           console.warn('[TvPlayer] Errore mpegts.js:', type, detail, info);
           this.handlePlaybackError('Errore flusso MPEG-TS');
         });
-
-        if (mpegts.Events.MEDIA_INFO) {
-          this.mpegInstance.on(mpegts.Events.MEDIA_INFO, () => {
-            if (this.markPlaying) this.markPlaying();
-          });
-        }
-
-        if (mpegts.Events.STATISTICS_INFO) {
-          this.mpegInstance.on(mpegts.Events.STATISTICS_INFO, (stat) => {
-            if (stat && (stat.decodedFrames > 0 || stat.speed > 0)) {
-              if (this.markPlaying) this.markPlaying();
-            }
-          });
-        }
 
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
@@ -368,35 +390,32 @@ class TvPlayer {
   }
 
   playHls(url) {
+    this.destroyEngines();
+    const session = this.sessionId;
     console.log('[TvPlayer] Avvio riproduzione HLS:', url);
 
     // Priorità: Hls.js con buffer controllato
     if (window.Hls && Hls.isSupported()) {
       try {
         this.hlsInstance = new Hls({
-          maxBufferLength: 8,
-          maxMaxBufferLength: 20,
+          maxBufferLength: 20,
+          maxMaxBufferLength: 30,
+          backBufferLength: 30,
+          maxBufferSize: 30 * 1000 * 1000,
+          lowLatencyMode: false,
           liveSyncDurationCount: 3,
           enableWorker: false // Massima stabilità su TV LG
         });
 
-        this.hlsInstance.loadSource(url);
-        this.hlsInstance.attachMedia(this.video);
-
         this.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (session !== this.sessionId) return;
           this.video.play().catch(() => {});
         });
 
-        this.hlsInstance.on(Hls.Events.FRAG_LOADED, () => {
-          if (this.markPlaying) this.markPlaying();
-        });
-
-        this.hlsInstance.on(Hls.Events.FRAG_PARSED, () => {
-          if (this.markPlaying) this.markPlaying();
-        });
-
         this.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+          if (session !== this.sessionId) return;
           if (data.fatal) {
+            this.stableSeconds = 0;
             console.warn('[TvPlayer] Errore fatale Hls.js:', data.type, data.details);
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
@@ -408,7 +427,14 @@ class TvPlayer {
                 }
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
-                this.hlsInstance.recoverMediaError();
+                if (this.retryCount < this.maxRetries &&
+                    (!this.lastMediaRecovery || Date.now() - this.lastMediaRecovery >= 5000)) {
+                  this.retryCount++;
+                  this.lastMediaRecovery = Date.now();
+                  this.hlsInstance.recoverMediaError();
+                } else {
+                  this.restartPlayback('Errore persistente di decodifica HLS');
+                }
                 break;
               default:
                 this.handlePlaybackError('Errore decodifica HLS');
@@ -416,6 +442,8 @@ class TvPlayer {
             }
           }
         });
+        this.hlsInstance.loadSource(url);
+        this.hlsInstance.attachMedia(this.video);
         return;
       } catch (e) {
         console.warn('[TvPlayer] Fallito avvio Hls.js, passo a tag nativo:', e);
@@ -427,6 +455,7 @@ class TvPlayer {
   }
 
   playNative(url) {
+    this.destroyEngines();
     console.log('[TvPlayer] Avvio riproduzione nativa:', url);
     this.video.src = url;
     this.video.play().catch(e => {
@@ -446,7 +475,10 @@ class TvPlayer {
       this.fallbackTriggered = true;
       const hasClearKey = ch.clearkey && !['0000', '0:0', '0'].includes(String(ch.clearkey).trim());
 
-      if (hasClearKey || (ch.id && !ch.id.endsWith('_ffmpeg'))) {
+      const isDash = hasClearKey || ch.mpdProxy === true ||
+        (ch.url && /\.mpd(?:[?#]|$)/i.test(ch.url)) ||
+        (ch.kodi_props && ch.kodi_props['inputstream.adaptive.manifest_type'] === 'mpd');
+      if (isDash && ch.streamMode !== 'ffmpeg_copy' && ch.id && !ch.id.endsWith('_ffmpeg')) {
         const auth = this.getAuthParam();
         const fallbackUrl = `${this.serverBase}/stream/mpd/${ch.id}.ts${auth}`;
         console.log('[TvPlayer] Auto-Fallback attivo verso FFmpeg Stream Copy centralizzato:', fallbackUrl);
@@ -456,7 +488,7 @@ class TvPlayer {
       }
     }
 
-    this.onStatusChange('error', { error: msg, channel: this.currentChannel });
+    this.restartPlayback(msg);
   }
 }
 
