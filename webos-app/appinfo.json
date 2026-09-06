@@ -10,6 +10,10 @@
   "bgImage": "background.png",
   "splashBackground": "background.png",
   "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "uiRevision": "2",
+  "supportTouch": false,
+  "inspectable": true,
   "trustLevel": "default",
   "requiredPermissions": [
     "media",

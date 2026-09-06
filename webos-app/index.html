@@ -3,188 +3,280 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>iosonofratv Loader</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body {
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background: radial-gradient(circle at center, #111827 0%, #030712 100%);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: #ffffff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-    .splash-card {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      text-align: center;
-    }
-    .logo-badge {
-      width: 80px;
-      height: 80px;
-      background: linear-gradient(135deg, #00e5ff, #7928ca);
-      border-radius: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 46px;
-      font-weight: 900;
-      color: #000;
-      box-shadow: 0 10px 30px rgba(0, 229, 255, 0.4);
-    }
-    .title {
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: 1px;
-    }
-    .title span { color: #00e5ff; }
-    .status-text {
-      font-size: 18px;
-      color: #94a3b8;
-    }
-    .spinner {
-      width: 44px;
-      height: 44px;
-      border: 4px solid rgba(255, 255, 255, 0.15);
-      border-top-color: #00e5ff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* Offline Box */
-    .offline-box {
-      margin-top: 20px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      padding: 24px 32px;
-      border-radius: 16px;
-      max-width: 540px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-    .offline-box.hidden { display: none; }
-    .input-server {
-      padding: 12px 16px;
-      border-radius: 8px;
-      background: rgba(0, 0, 0, 0.6);
-      border: 1px solid #475569;
-      color: #fff;
-      font-size: 16px;
-      width: 100%;
-      outline: none;
-    }
-    .input-server:focus {
-      border-color: #00e5ff;
-      box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
-    }
-    .btn {
-      padding: 12px 24px;
-      background: #00e5ff;
-      color: #000;
-      border: none;
-      border-radius: 8px;
-      font-weight: 700;
-      font-size: 16px;
-      cursor: pointer;
-      outline: none;
-    }
-    .btn:focus {
-      box-shadow: 0 0 20px rgba(0, 229, 255, 0.8);
-      transform: scale(1.05);
-    }
-  </style>
+  <title>iosonofratv</title>
+  <link rel="stylesheet" href="css/tv.css">
+  <!-- Local bundled player libraries (Zero latency & offline resilience) -->
+  <script src="js/vendor/webOSTV.js"></script>
+  <script src="js/vendor/hls.min.js"></script>
+  <script src="js/vendor/mpegts.min.js"></script>
 </head>
-<body>
-  <div class="splash-card">
-    <div class="logo-badge">F</div>
-    <h1 class="title">IOSONOFRA<span>TV</span></h1>
-    <div id="spinner" class="spinner"></div>
-    <p id="status-text" class="status-text">Connessione a iosonofratv in corso...</p>
-
-    <!-- Riquadro di configurazione in caso di mancata connessione -->
-    <div id="offline-box" class="offline-box hidden">
-      <p style="color: #f87171; font-weight: 600;">⚠️ Impossibile contattare il server.</p>
-      <input type="text" id="server-url-input" class="input-server" value="https://alpistream.iosonofra.click" placeholder="https://alpistream.iosonofra.click">
-      <button id="retry-btn" class="btn">Riprova Connessione</button>
+<body class="tv-body">
+  <!-- Sfondo Video a Tutto Schermo -->
+  <div id="video-container" class="video-container">
+    <video id="tv-video" playsinline autoplay></video>
+    <div id="video-spinner" class="video-spinner hidden">
+      <div class="spinner-ring"></div>
+      <span id="spinner-text">Caricamento flusso...</span>
     </div>
   </div>
 
-  <script>
-    (function () {
-      const DEFAULT_URL = 'https://alpistream.iosonofra.click';
-      const storedUrl = localStorage.getItem('iosonofratv_server') || localStorage.getItem('mandrakodi_tv_server') || DEFAULT_URL;
+  <!-- OSD Salto Canale Diretto (Tasti Numerici) -->
+  <div id="number-jump-osd" class="number-jump-osd hidden">
+    <span class="jump-label">Canale</span>
+    <span id="jump-digits" class="jump-digits">0</span>
+  </div>
 
-      const statusText = document.getElementById('status-text');
-      const spinner = document.getElementById('spinner');
-      const offlineBox = document.getElementById('offline-box');
-      const inputEl = document.getElementById('server-url-input');
-      const retryBtn = document.getElementById('retry-btn');
+  <!-- Overlay Principale Navigazione (TiviMate Style) -->
+  <div id="tv-overlay" class="tv-overlay">
+    <!-- Top Header -->
+    <header class="tv-header">
+      <div class="header-brand">
+        <div class="brand-logo-icon">F</div>
+        <span class="brand-title">IOSONOFRA<span class="brand-highlight">TV</span></span>
+      </div>
+      <div class="header-status">
+        <button id="btn-open-guide" class="header-guide-btn"><span class="key-badge color-yellow">■</span> Guida TV</button>
+        <span id="active-server-badge" class="badge badge-server">Cloud</span>
+        <span id="active-channel-counter" class="channel-counter">0 canali</span>
+        <span id="tv-clock" class="tv-clock">--:--</span>
+      </div>
+    </header>
 
-      inputEl.value = storedUrl;
+    <!-- Main Navigation Columns -->
+    <div class="tv-main-layout">
+      <!-- Colonna 1: Gruppi / Categorie -->
+      <nav id="groups-column" class="tv-column groups-column">
+        <div class="column-header">
+          <span class="column-title">CATEGORIE</span>
+        </div>
+        <div id="groups-list" class="groups-list" tabindex="-1">
+          <!-- Inseriti dinamicamente via JS -->
+        </div>
+      </nav>
 
-      function checkAndRedirect(url) {
-        const targetUrl = url.replace(/\/$/, '') + '/tv/';
-        statusText.textContent = 'Connessione a ' + targetUrl + '...';
+      <!-- Colonna 2: Lista Canali con EPG -->
+      <section id="channels-column" class="tv-column channels-column">
+        <div class="column-header">
+          <span id="current-group-title" class="column-title">CANALI</span>
+          <span id="channels-group-count" class="group-count">0</span>
+        </div>
+        <div id="channels-list" class="channels-list" tabindex="-1">
+          <!-- Inseriti dinamicamente via JS -->
+        </div>
+      </section>
 
-        // Ping di controllo con timeout 4s
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+      <!-- Colonna 3: Mini-Player PiP & Scheda Dettagli EPG Canale Evidenziato -->
+      <aside id="preview-column" class="tv-column preview-column">
+        <div class="column-header">
+          <span class="column-title">IN ONDA / DETTAGLI</span>
+        </div>
+        <!-- Segnaposto Mini-Player: la finestra video si ancora qui in PiP -->
+        <div id="mini-player-anchor" class="mini-player-anchor">
+          <div class="pip-frame-glow"></div>
+          <div class="pip-status-badge"><span class="live-dot">●</span> IN DIRETTA</div>
+        </div>
 
-        fetch(url.replace(/\/$/, '') + '/api/channels', { signal: controller.signal })
-          .then(res => {
-            clearTimeout(timeoutId);
-            if (res.ok) {
-              localStorage.setItem('iosonofratv_server', url.replace(/\/$/, ''));
-              localStorage.setItem('mandrakodi_tv_server', url.replace(/\/$/, ''));
-              window.location.replace(targetUrl);
-            } else {
-              showOfflinePrompt('Risposta server non valida (' + res.status + ')');
-            }
-          })
-          .catch(err => {
-            clearTimeout(timeoutId);
-            // Prova comunque a reindirizzare (utile se CORS blocca la fetch ma la pagina web caricherebbe)
-            console.warn('Ping fallito, tentativo di navigazione diretta:', err);
-            window.location.replace(targetUrl);
-          });
-      }
+        <!-- Scheda Informativa Completa Canale Evidenziato col Cursore -->
+        <div id="focused-channel-card" class="focused-channel-card">
+          <div class="card-channel-header">
+            <div class="card-logo-container">
+              <img id="card-channel-logo" src="" alt="" class="card-logo" onerror="this.style.display='none'">
+            </div>
+            <div class="card-channel-meta">
+              <div class="card-lcn-row">
+                <span id="card-channel-lcn" class="card-lcn">CH 1</span>
+                <span id="card-channel-group" class="card-group">NAZIONALI</span>
+              </div>
+              <h3 id="card-channel-title" class="card-title">Nome Canale</h3>
+            </div>
+          </div>
 
-      function showOfflinePrompt(msg) {
-        spinner.style.display = 'none';
-        statusText.textContent = msg || 'Connessione fallita.';
-        offlineBox.classList.remove('hidden');
-        retryBtn.focus();
-      }
+          <div class="card-epg-section">
+            <div class="card-now-box">
+              <div class="card-now-header">
+                <span class="card-tag">ORA IN ONDA</span>
+                <span id="card-epg-time" class="card-time">--:-- - --:--</span>
+              </div>
+              <h4 id="card-epg-title" class="card-prog-title">Caricamento programma...</h4>
+              <div id="card-epg-genre" class="card-genre"></div>
+              <div class="card-progress-bar">
+                <div id="card-epg-progress" class="card-progress-fill" style="width: 0%;"></div>
+              </div>
+              <p id="card-epg-desc" class="card-desc">Nessuna informazione o trama disponibile per questo evento.</p>
+            </div>
 
-      retryBtn.addEventListener('click', function () {
-        const newUrl = inputEl.value.trim();
-        if (newUrl) {
-          spinner.style.display = 'block';
-          offlineBox.classList.add('hidden');
-          checkAndRedirect(newUrl);
-        }
-      });
+            <div class="card-next-box">
+              <span class="card-next-label">A SEGUIRE:</span>
+              <div class="card-next-content">
+                <span id="card-next-title" class="card-next-title">Nessun evento successivo</span>
+                <span id="card-next-time" class="card-next-time"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
 
-      // Tasto Back / Return su webOS
-      document.addEventListener('keydown', function (e) {
-        if (e.keyCode === 461 || e.keyCode === 27) {
-          if (window.webOS && window.webOS.platformBack) {
-            window.webOS.platformBack();
-          }
-        }
-      });
+    <!-- Guida Tasti Telecomando Rapida in Basso -->
+    <footer class="tv-footer-hints">
+      <div class="hint-item"><span class="key-badge">▲▼</span> Canale / Zapping</div>
+      <div class="hint-item"><span class="key-badge">◄►</span> Categoria / Canali</div>
+      <div class="hint-item"><span class="key-badge">OK</span> Sintonizza a schermo intero</div>
+      <div class="hint-item"><span class="key-badge color-yellow">■</span> Guida TV (GUIDE)</div>
+      <div class="hint-item"><span class="key-badge">BACK</span> Schermo intero</div>
+      <div class="hint-item"><span class="key-badge color-blue">■</span> Impostazioni</div>
+    </footer>
+  </div>
 
-      // Avvia reindirizzamento
-      checkAndRedirect(storedUrl);
-    })();
-  </script>
+  <!-- Banner Flottante Zapping Rapido Sky Glass (Tasti Ch +/- e Frecce a Tutto Schermo) -->
+  <div id="tv-zapping-banner" class="tv-zapping-banner hidden">
+    <div class="zap-banner-card">
+      <div class="zap-badge-col">
+        <span id="zap-channel-lcn" class="zap-lcn">CH 1</span>
+        <div class="zap-logo-box">
+          <img id="zap-channel-logo" src="" alt="" class="zap-logo" onerror="this.style.display='none'">
+        </div>
+      </div>
+      <div class="zap-info-col">
+        <div class="zap-channel-row">
+          <h3 id="zap-channel-title" class="zap-channel-title">Nome Canale</h3>
+          <span id="zap-channel-group" class="zap-group-badge">GENERALE</span>
+          <span id="zap-status-pill" class="zap-status-pill">SINTONIZZA...</span>
+        </div>
+        <div class="zap-prog-row">
+          <span id="zap-prog-title" class="zap-prog-title">Caricamento guida TV...</span>
+          <span id="zap-prog-time" class="zap-prog-time">--:-- - --:--</span>
+        </div>
+        <div class="zap-progress-track">
+          <div id="zap-prog-progress" class="zap-progress-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OSD Inferiore a Scomparsa (Player Info & EPG) -->
+  <div id="tv-bottom-osd" class="tv-bottom-osd hidden">
+    <div class="osd-content">
+      <div class="osd-logo-box">
+        <img id="osd-channel-logo" src="" alt="" class="osd-logo">
+      </div>
+      <div class="osd-info-box">
+        <div class="osd-channel-row">
+          <span id="osd-channel-number" class="osd-ch-no">CH 1</span>
+          <h2 id="osd-channel-title" class="osd-title">Nome Canale</h2>
+          <span id="osd-stream-badge" class="badge badge-codec">HLS</span>
+        </div>
+        <div class="osd-epg-now">
+          <span id="osd-epg-now-title" class="epg-title">Caricamento guida TV...</span>
+          <span id="osd-epg-now-time" class="epg-time">--:-- - --:--</span>
+        </div>
+        <div class="osd-progress-container">
+          <div id="osd-epg-progress-bar" class="osd-progress-bar" style="width: 0%;"></div>
+        </div>
+        <div class="osd-epg-next">
+          <span class="next-label">A seguire:</span>
+          <span id="osd-epg-next-title" class="next-title">Nessuna informazione</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Schermata Guida TV Completa (Sky Glass Timeline Grid) -->
+  <div id="tv-guide-modal" class="tv-guide-modal hidden">
+    <div class="guide-container">
+      <div class="guide-header">
+        <div class="guide-title-box">
+          <span class="guide-logo-icon">📅</span>
+          <span class="guide-main-title">GUIDA TV SKY GLASS</span>
+          <span id="guide-group-badge" class="guide-group-badge">TUTTI I CANALI</span>
+        </div>
+        <div class="guide-header-actions">
+          <span class="guide-hint"><b>OK</b> Guarda / Trama • <b>BACK</b> Torna alla TV</span>
+          <span id="guide-clock" class="tv-clock">--:--</span>
+        </div>
+      </div>
+
+      <!-- Barra Fasce Orarie -->
+      <div class="guide-time-axis" id="guide-time-axis">
+        <div class="time-axis-channel-header">CANALE / ORA</div>
+        <div class="time-slots-wrapper" id="guide-time-slots">
+          <!-- Generati via JS -->
+        </div>
+      </div>
+
+      <!-- Griglia Canali & Eventi -->
+      <div class="guide-grid-viewport" id="guide-grid-viewport">
+        <div class="guide-grid-content" id="guide-grid-content">
+          <!-- Righe canali generate via JS -->
+        </div>
+      </div>
+
+      <!-- Preview Informativa in Basso durante la navigazione -->
+      <div class="guide-footer">
+        <div class="footer-prog-preview" id="guide-active-preview">
+          <div class="preview-title" id="preview-prog-title">Caricamento programmazione...</div>
+          <div class="preview-meta" id="preview-prog-meta"></div>
+          <div class="preview-desc" id="preview-prog-desc"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Dettaglio Programma Futuro (Trama & Info) -->
+  <div id="tv-event-detail-modal" class="tv-modal hidden">
+    <div class="modal-card event-detail-card">
+      <div class="modal-header">
+        <span id="event-detail-channel" class="badge badge-server">Canale</span>
+        <span id="event-detail-time" class="event-time-badge">--:-- - --:--</span>
+      </div>
+      <div class="modal-body">
+        <h2 id="event-detail-title" class="event-detail-title">Titolo Programma</h2>
+        <p id="event-detail-category" class="event-detail-category"></p>
+        <p id="event-detail-desc" class="event-detail-desc">Nessuna descrizione disponibile.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-close-event-detail" class="tv-btn tv-btn-primary">Chiudi (BACK)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Impostazioni Server TV -->
+  <div id="tv-settings-modal" class="tv-modal hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>⚙️ Impostazioni iosonofratv</h3>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="cfg-server-url">Indirizzo Server iosonofratv:</label>
+          <input type="text" id="cfg-server-url" class="tv-input" placeholder="https://alpistream.iosonofra.click o http://192.168.1.50:3000">
+          <small class="field-hint">Puoi usare il dominio Cloudflare o l'IP locale del tuo container Proxmox.</small>
+        </div>
+        <div class="form-group">
+          <label for="cfg-auth-token">Auth Token (opzionale):</label>
+          <input type="text" id="cfg-auth-token" class="tv-input" placeholder="Lascia vuoto se non richiesto">
+        </div>
+        <div class="form-group">
+          <label for="cfg-player-mode">Modalità Riproduzione Preferita:</label>
+          <select id="cfg-player-mode" class="tv-select">
+            <option value="auto">Ibrido Intelligente (Auto-Fallback)</option>
+            <option value="direct">Diretto HLS (Max Prestazioni)</option>
+            <option value="stream_copy">Centralizzato FFmpeg MPEG-TS (Max Compatibilità)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="tv-btn tv-btn-primary">Salva e Ricarica</button>
+        <button id="btn-cancel-settings" class="tv-btn tv-btn-secondary">Annulla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifiche TV -->
+  <div id="tv-toast" class="tv-toast hidden"></div>
+
+  <!-- Scripts dell'applicazione -->
+  <script src="js/tv-player.js"></script>
+  <script src="js/tv-app.js"></script>
 </body>
 </html>

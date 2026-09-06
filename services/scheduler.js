@@ -61,28 +61,36 @@ class Scheduler {
       // 1. Esegui estrazione canali
       const extractedChannels = await this.extractor.runExtraction(activeSourceIds);
 
-      // 2. Preserva modifiche personalizzate (enabled, custom name, custom group, tvgId)
+      // 2. Preserva modifiche personalizzate (enabled, custom name, custom group, custom logo, tvgId, warp, mpd, lcn)
       const existingChannels = getChannels();
       const existingMap = new Map();
       existingChannels.forEach(ch => {
         if (ch.id) existingMap.set(ch.id, ch);
         if (ch.title) existingMap.set(ch.title, ch);
+        if (ch.originalTitle) existingMap.set(ch.originalTitle, ch);
       });
 
       const updatedChannels = extractedChannels.map(ch => {
-        const existing = existingMap.get(ch.id) || existingMap.get(ch.title);
+        const existing = existingMap.get(ch.id) || existingMap.get(ch.title) || (ch.originalTitle && existingMap.get(ch.originalTitle));
         const autoTvgId = epgManager.getAutoTvgId(ch.title);
 
         if (existing) {
           return {
             ...ch,
-            title: existing.customTitle || ch.title,
+            title: existing.customTitle || existing.title || ch.title,
             originalTitle: ch.title,
-            group: existing.customGroup || ch.group,
+            group: existing.customGroup || existing.group || ch.group,
             originalGroup: ch.group,
-            logo: existing.customLogo || ch.logo,
+            logo: existing.customLogo || existing.logo || ch.logo,
             tvgId: existing.tvgId || autoTvgId,
-            enabled: existing.enabled !== undefined ? existing.enabled : true
+            enabled: existing.enabled !== undefined ? existing.enabled : true,
+            customTitle: existing.customTitle,
+            customGroup: existing.customGroup,
+            customLogo: existing.customLogo,
+            useWarp: existing.useWarp !== undefined ? existing.useWarp : ch.useWarp,
+            streamMode: existing.streamMode || ch.streamMode,
+            mpdProxy: existing.mpdProxy !== undefined ? existing.mpdProxy : ch.mpdProxy,
+            lcn: existing.lcn !== undefined ? existing.lcn : ch.lcn
           };
         }
 

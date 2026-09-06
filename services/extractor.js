@@ -821,14 +821,25 @@ class ExtractorEngine {
     return this.channels;
   }
 
-  generateM3U(channels = [], customChannels = [], customGroupOrder = [], epgUrl = '/epg.xml', baseUrl = '', tokenParam = '') {
+  generateM3U(channels = [], customChannels = [], customGroupOrder = [], epgUrl = '/epg.xml', baseUrl = '', tokenParam = '', customLcnMap = null) {
     let m3u = epgUrl ? `#EXTM3U url-tvg="${epgUrl}" x-tvg-url="${epgUrl}"\n` : '#EXTM3U\n';
+
+    if (!customLcnMap) {
+      try {
+        customLcnMap = require('./storage').getChannelLcnMap();
+      } catch (e) {
+        customLcnMap = {};
+      }
+    }
 
     const allChannels = processWarpChannels([...customChannels, ...channels]).filter(ch => ch.enabled !== false);
 
-    // 1. Raggruppa i canali per group-title normalizzato
+    // 1. Raggruppa i canali per group-title normalizzato e assegna LCN
     const groupsMap = new Map();
     for (const ch of allChannels) {
+      if (customLcnMap && customLcnMap[ch.id] !== undefined && customLcnMap[ch.id] !== null && customLcnMap[ch.id] !== '') {
+        ch.lcn = parseInt(customLcnMap[ch.id], 10);
+      }
       const g = sanitizeGroupName(ch.customGroup || ch.group || 'Generale');
       if (!groupsMap.has(g)) {
         groupsMap.set(g, []);
@@ -856,6 +867,11 @@ class ExtractorEngine {
     let channelNumber = 1;
     for (const groupName of sortedGroupNames) {
       const groupChannels = groupsMap.get(groupName) || [];
+      groupChannels.sort((a, b) => {
+        const lcnA = (a.lcn !== undefined && a.lcn !== null) ? a.lcn : 999999;
+        const lcnB = (b.lcn !== undefined && b.lcn !== null) ? b.lcn : 999999;
+        return lcnA - lcnB;
+      });
       for (const ch of groupChannels) {
         const title = (ch.customTitle || ch.title || 'Senza Titolo').trim();
         const logo = ch.customLogo || ch.logo || '';
@@ -962,7 +978,8 @@ class ExtractorEngine {
           }
         }
 
-        m3u += `#EXTINF:-1 tvg-id="${tvgId}" tvg-name="${title}" tvg-logo="${logo}" group-title="${groupName}" tvg-chno="${channelNumber}",${title}\n`;
+        const assignedChNo = (ch.lcn !== undefined && ch.lcn !== null && !isNaN(ch.lcn)) ? ch.lcn : channelNumber;
+        m3u += `#EXTINF:-1 tvg-id="${tvgId}" tvg-name="${title}" tvg-logo="${logo}" group-title="${groupName}" tvg-chno="${assignedChNo}",${title}\n`;
         channelNumber++;
 
         if (isAce || isMpdProxy) {

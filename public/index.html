@@ -40,6 +40,9 @@
         <button class="nav-item" data-tab="editor">
           <span class="icon">✏️</span> Editor Canali
         </button>
+        <button class="nav-item" data-tab="channels-order">
+          <span class="icon">🔢</span> Ordinamento & LCN
+        </button>
         <button class="nav-item" data-tab="groups">
           <span class="icon">📑</span> Ordine Gruppi
         </button>
@@ -340,6 +343,42 @@
             <div class="card-body">
               <div class="groups-sortable-container" id="groups-sortable-list">
                 <!-- Generato dinamicamente da groups.js -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5b. TAB: ORDINAMENTO CANALI E NUMERAZIONE LCN -->
+        <section id="tab-channels-order" class="tab-pane">
+          <div class="card">
+            <div class="card-header flex-between flex-wrap gap-12">
+              <div>
+                <h3>🔢 Ordinamento Canali & Numerazione LCN</h3>
+                <p class="text-muted">Personalizza la numerazione logica (LCN) e l'ordine dei canali. Trascina i canali per riordinarli oppure imposta il numero desiderato per ciascuno.</p>
+              </div>
+              <div class="groups-header-actions">
+                <span class="badge badge-group" id="channels-order-total-count">0 Canali</span>
+                <button class="btn btn-secondary" id="btn-renumber-lcn-auto">🔢 Compatta LCN (1..N)</button>
+                <button class="btn btn-primary" id="btn-save-channels-order">💾 Salva Ordinamento</button>
+              </div>
+            </div>
+
+            <!-- Toolbar Filtri & Ricerca -->
+            <div class="groups-toolbar-card" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+              <div style="flex-grow: 1; min-width: 200px;">
+                <input type="text" id="order-search-input" class="form-control" placeholder="🔍 Cerca canale per nome o gruppo...">
+              </div>
+              <div style="min-width: 180px;">
+                <select id="order-group-filter" class="form-select">
+                  <option value="ALL">Tutti i Gruppi</option>
+                </select>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-reload-channels-order">🔄 Ricarica</button>
+            </div>
+
+            <div class="card-body">
+              <div class="channels-sortable-container" id="channels-sortable-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 650px; overflow-y: auto; padding-right: 6px;">
+                <!-- Generato dinamicamente da channels-order.js -->
               </div>
             </div>
           </div>
@@ -671,6 +710,7 @@
   <script src="js/player.js?v=2.3"></script>
   <script src="js/events-view.js?v=2.3"></script>
   <script src="js/groups.js?v=2.3"></script>
+  <script src="js/channels-order.js?v=2.4"></script>
   <script src="js/app.js?v=2.3"></script>
   <script src="js/editor.js?v=2.3"></script>
   <script src="js/epg-view.js?v=2.3"></script>

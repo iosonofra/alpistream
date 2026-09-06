@@ -107,8 +107,7 @@ function buildIpk() {
   ]);
   const controlTarGz = zlib.gzipSync(controlTar);
 
-  // 3. data.tar.gz
-  const filesToPackage = ['appinfo.json', 'index.html', 'icon.png', 'largeIcon.png', 'background.png'];
+  // 3. data.tar.gz (Impacchettamento ricorsivo di tutti gli asset nativi)
   const basePath = `./usr/palm/applications/${appId}`;
 
   const dataFileList = [
@@ -119,16 +118,31 @@ function buildIpk() {
     { name: `${basePath}/`, isDir: true }
   ];
 
-  for (const fn of filesToPackage) {
-    const p = path.join(appDir, fn);
-    if (fs.existsSync(p)) {
-      dataFileList.push({
-        name: `${basePath}/${fn}`,
-        data: fs.readFileSync(p)
-      });
-      console.log(`  -> Aggiunto: ${fn}`);
+  function addDirRecursive(dirPath, tarPrefix) {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    entries.sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1));
+
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      const tarPath = `${tarPrefix}/${entry.name}`;
+
+      // Salta file di build, script e pacchetti .ipk preesistenti
+      if (entry.name.endsWith('.ipk') || entry.name === 'build-ipk.js' || entry.name.startsWith('.')) {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        dataFileList.push({ name: `${tarPath}/`, isDir: true });
+        addDirRecursive(fullPath, tarPath);
+      } else {
+        const fileData = fs.readFileSync(fullPath);
+        dataFileList.push({ name: tarPath, data: fileData, isDir: false });
+        console.log(`  -> Aggiunto: ${tarPath.replace(basePath + '/', '')}`);
+      }
     }
   }
+
+  addDirRecursive(appDir, basePath);
 
   const dataTar = makeTar(dataFileList);
   const dataTarGz = zlib.gzipSync(dataTar);

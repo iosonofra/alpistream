@@ -137,7 +137,8 @@ app.get(['/playlist.m3u', '/playlist', '/live.m3u', '/iosonofratv.m3u', '/mandra
     }
   }
 
-  const m3uContent = extractor.generateM3U(channels, customChannels, groupOrder, epgUrl, baseUrl, tokenParam);
+  const lcnMap = storage.getChannelLcnMap();
+  const m3uContent = extractor.generateM3U(channels, customChannels, groupOrder, epgUrl, baseUrl, tokenParam, lcnMap);
 
   res.setHeader('Content-Type', 'application/x-mpegurl; charset=utf-8');
   res.setHeader('Content-Disposition', 'inline; filename="iosonofratv.m3u"');
@@ -237,7 +238,21 @@ app.get('/api/channels', (req, res) => {
   const { group, search, status, page = 1, limit = 50 } = req.query;
   const channels = storage.getChannels();
   const customChannels = storage.getCustomChannels();
+  const customLcnMap = storage.getChannelLcnMap();
   const rawAll = [...channels, ...customChannels].map(normalizeAceChannel);
+
+  // Assegna LCN personalizzato
+  rawAll.forEach((ch, idx) => {
+    if (customLcnMap && customLcnMap[ch.id] !== undefined && customLcnMap[ch.id] !== null && customLcnMap[ch.id] !== '') {
+      ch.lcn = parseInt(customLcnMap[ch.id], 10);
+    } else {
+      ch.lcn = idx + 1;
+    }
+  });
+
+  // Ordina per LCN globale predefinito
+  rawAll.sort((a, b) => (a.lcn || 999999) - (b.lcn || 999999));
+
   const groups = [...new Set(rawAll.map(c => sanitizeGroupName(c.customGroup || c.group || 'Generale')))].filter(Boolean).sort();
 
   let all = [...rawAll];
@@ -285,7 +300,17 @@ app.get('/api/channels', (req, res) => {
 // Modifica singolo canale
 app.put('/api/channels/:id', (req, res) => {
   const { id } = req.params;
-  const { title, group, logo, tvgId, enabled, useWarp, mpdProxy, streamMode } = req.body;
+  const { title, group, logo, tvgId, enabled, useWarp, mpdProxy, streamMode, lcn } = req.body;
+
+  if (lcn !== undefined) {
+    const lcnMap = storage.getChannelLcnMap();
+    if (lcn === null || lcn === '') {
+      delete lcnMap[id];
+    } else {
+      lcnMap[id] = parseInt(lcn, 10);
+    }
+    storage.saveChannelLcnMap(lcnMap);
+  }
 
   const channels = storage.getChannels();
   let found = false;
@@ -1172,15 +1197,6 @@ function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
     return '';
   });
 
-  // 4. Trimming di sicurezza del SegmentTimeline (1-2 segmenti di margine)
-  // Garantisce che ogni segmento richiesto da FFmpeg sia già presente sulla CDN senza svuotare la sliding window
-  cleaned = cleaned.replace(/<SegmentTimeline>([\s\S]*?)<\/SegmentTimeline>/gi, (m) => {
-    const sTags = m.match(/<S\b[^>]*\/?>/g) || [];
-    if (sTags.length <= 4) return m;
-    const keep = sTags.slice(0, sTags.length - 2);
-    return "<SegmentTimeline>\n              " + keep.join("\n              ") + "\n            </SegmentTimeline>";
-  });
-
   return cleaned;
 }
 
@@ -1558,6 +1574,7 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     '-rw_timeout', '15000000',
     '-tcp_nodelay', '1',
     '-fflags', '+genpts+discardcorrupt',
+    '-avoid_negative_ts', 'make_zero'
   ];
 
   if (formattedHeaders) {
@@ -1576,17 +1593,17 @@ function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, res) {
     '-c:v', 'copy',
     '-bsf:v', 'h264_mp4toannexb',
 
-    // Audio: normalizzazione timeline continua (elimina i blocchi di 1s sui cambi segmento DASH)
+    // Audio: risincronizzazione istantanea continua (evita che l'audio corra avanti rispetto al video)
     '-c:a', 'aac',
     '-b:a', '128k',
-    '-af', 'aresample=async=1',
+    '-af', 'aresample=async=1000:min_hard_comp=0.100000:first_pts=0',
 
     // Parametri di muxing MPEG-TS a bassa latenza e throughput costante
     '-max_muxing_queue_size', '4096',
     '-flush_packets', '1',
     '-muxdelay', '0.1',
     '-f', 'mpegts',
-    '-mpegts_flags', '+resend_headers',
+    '-mpegts_flags', '+resend_headers+initial_discontinuity',
     '-pcr_period', '20',
     'pipe:1'
   );
@@ -1968,6 +1985,120 @@ app.post('/api/groups/rename', (req, res) => {
     return res.status(400).json({ error: 'Impossibile rinominare il gruppo' });
   }
   res.json({ success: true, message: `Gruppo rinominato con successo (${result.updatedCount} canali aggiornati)` });
+});
+// -------------------------------------------------------------
+// 6. EPG LIVE & TIMELINE (Zero lag per Smart TV e Web)
+// -------------------------------------------------------------
+app.get('/api/epg/live', (req, res) => {
+  try {
+    const channels = storage.getChannels();
+    const custom = storage.getCustomChannels();
+    const customLcnMap = storage.getChannelLcnMap();
+    const rawAll = [...channels, ...custom].map(normalizeAceChannel).filter(c => c.enabled !== false);
+    rawAll.forEach((ch, idx) => {
+      ch.lcn = (customLcnMap && customLcnMap[ch.id] !== undefined && customLcnMap[ch.id] !== null) 
+        ? parseInt(customLcnMap[ch.id], 10) 
+        : idx + 1;
+    });
+
+    const liveEpg = epgManager.getLiveEpg(rawAll);
+    res.json({
+      success: true,
+      timestamp: Date.now(),
+      epg: liveEpg
+    });
+  } catch (err) {
+    console.error('[API] Errore /api/epg/live:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/epg/timeline', (req, res) => {
+  try {
+    const { hours = 4, group } = req.query;
+    const channels = storage.getChannels();
+    const custom = storage.getCustomChannels();
+    const customLcnMap = storage.getChannelLcnMap();
+    let rawAll = [...channels, ...custom].map(normalizeAceChannel).filter(c => c.enabled !== false);
+
+    rawAll.forEach((ch, idx) => {
+      ch.lcn = (customLcnMap && customLcnMap[ch.id] !== undefined && customLcnMap[ch.id] !== null) 
+        ? parseInt(customLcnMap[ch.id], 10) 
+        : idx + 1;
+    });
+
+    if (group && group !== 'ALL') {
+      rawAll = rawAll.filter(ch => sanitizeGroupName(ch.customGroup || ch.group || 'Generale') === group || ch.group === group);
+    } else {
+      rawAll = rawAll.slice(0, 60); // Limita a 60 canali principali su 'ALL' per evitare congestione DOM su webOS
+    }
+
+    rawAll.sort((a, b) => (a.lcn || 999999) - (b.lcn || 999999));
+
+    const timeline = epgManager.getTimelineEpg(rawAll, hours);
+    res.json({
+      success: true,
+      ...timeline
+    });
+  } catch (err) {
+    console.error('[API] Errore /api/epg/timeline:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 7. GESTIONE ORDINAMENTO CANALI E LCN PERSONALIZZATO
+// -------------------------------------------------------------
+app.get('/api/channels/order', (req, res) => {
+  const channels = storage.getChannels();
+  const custom = storage.getCustomChannels();
+  const customLcnMap = storage.getChannelLcnMap();
+  const rawAll = [...channels, ...custom].map(normalizeAceChannel).filter(c => c.enabled !== false);
+
+  rawAll.forEach((ch, idx) => {
+    ch.lcn = (customLcnMap && customLcnMap[ch.id] !== undefined && customLcnMap[ch.id] !== null) 
+      ? parseInt(customLcnMap[ch.id], 10) 
+      : idx + 1;
+  });
+
+  rawAll.sort((a, b) => (a.lcn || 999999) - (b.lcn || 999999));
+
+  res.json({
+    success: true,
+    total: rawAll.length,
+    channels: rawAll.map(c => ({
+      id: c.id,
+      title: c.customTitle || c.title,
+      group: c.customGroup || c.group || 'Generale',
+      logo: c.customLogo || c.logo || '',
+      lcn: c.lcn
+    })),
+    lcnMap: customLcnMap
+  });
+});
+
+app.post('/api/channels/order', (req, res) => {
+  const { lcnMap } = req.body;
+  if (!lcnMap || typeof lcnMap !== 'object') {
+    return res.status(400).json({ error: 'lcnMap deve essere un oggetto { [channelId]: number }' });
+  }
+
+  const cleaned = {};
+  for (const [id, lcnVal] of Object.entries(lcnMap)) {
+    if (lcnVal !== null && lcnVal !== undefined && lcnVal !== '') {
+      const num = parseInt(lcnVal, 10);
+      if (!isNaN(num) && num > 0) {
+        cleaned[id] = num;
+      }
+    }
+  }
+
+  storage.saveChannelLcnMap(cleaned);
+  res.json({
+    success: true,
+    message: 'Ordinamento e numerazione LCN canali salvati con successo',
+    count: Object.keys(cleaned).length
+  });
 });
 
 // Configurazione Generale

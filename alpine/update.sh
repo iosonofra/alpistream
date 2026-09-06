@@ -16,17 +16,33 @@ else
     exit 1
 fi
 
-# 1. Scarica l'ultimo aggiornamento da GitHub
-echo "[+] Download aggiornamenti da Git (allineamento forzato pulito)..."
+# 1. Backup di sicurezza preventivo di tutti i dati e impostazioni utente
+BACKUP_DATA_DIR="/tmp/mandrakodi_data_backup_$(date +%s)"
+if [ -d "$INSTALL_DIR/data" ]; then
+    echo "[+] Salvataggio preventivo impostazioni e liste utente in $BACKUP_DATA_DIR..."
+    mkdir -p "$BACKUP_DATA_DIR"
+    cp -a "$INSTALL_DIR/data/." "$BACKUP_DATA_DIR/" 2>/dev/null || true
+fi
+
+# 2. Scarica l'ultimo aggiornamento da GitHub (allineamento pulito)
+echo "[+] Download aggiornamenti da Git..."
 git fetch origin main
 git reset --hard origin/main
 chmod +x alpine/*.sh
 
-# 2. Aggiorna dipendenze se necessario
+# 3. Ripristino totale delle impostazioni, liste attive e canali salvati dall'utente
+if [ -d "$BACKUP_DATA_DIR" ]; then
+    echo "[+] Ripristino impostazioni, liste e canali personalizzati..."
+    mkdir -p "$INSTALL_DIR/data"
+    cp -a "$BACKUP_DATA_DIR/." "$INSTALL_DIR/data/" 2>/dev/null || true
+    rm -rf "$BACKUP_DATA_DIR"
+fi
+
+# 4. Aggiorna dipendenze se necessario
 echo "[+] Controllo dipendenze NPM..."
 npm install --production --no-audit
 
-# 3. Se warp-svc è installato, aggiorna servizio e riavvia
+# 5. Se warp-svc è installato, aggiorna servizio e riavvia
 if [ -f "/etc/init.d/warp-svc" ]; then
     echo "[+] Rilevato servizio warp-svc: aggiornamento configurazione..."
     if [ -f "$INSTALL_DIR/alpine/warp-svc.initd" ]; then
@@ -37,7 +53,7 @@ if [ -f "/etc/init.d/warp-svc" ]; then
     rc-service warp-svc restart 2>/dev/null || true
 fi
 
-# 4. Riavvia il servizio OpenRC mandrakodi
+# 6. Riavvia il servizio OpenRC mandrakodi
 echo "[+] Riavvio del servizio mandrakodi in corso..."
 rc-service mandrakodi stop 2>/dev/null || true
 killall node 2>/dev/null || true

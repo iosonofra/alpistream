@@ -65,7 +65,8 @@ const DEFAULT_CONFIG = {
   warpHost: '127.0.0.1:40000',
   warpLicenseKey: '',
   warpGroups: [],
-  groupOrder: []
+  groupOrder: [],
+  channelLcnMap: {}
 };
 
 function readJsonFile(filePath, defaultValue) {
@@ -100,6 +101,17 @@ function getGroupOrder() {
 function saveGroupOrder(orderList) {
   const cfg = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
   cfg.groupOrder = Array.isArray(orderList) ? orderList : [];
+  return writeJsonFile(CONFIG_FILE, cfg);
+}
+
+function getChannelLcnMap() {
+  const cfg = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
+  return (cfg.channelLcnMap && typeof cfg.channelLcnMap === 'object') ? cfg.channelLcnMap : {};
+}
+
+function saveChannelLcnMap(map) {
+  const cfg = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
+  cfg.channelLcnMap = (map && typeof map === 'object') ? map : {};
   return writeJsonFile(CONFIG_FILE, cfg);
 }
 
@@ -151,12 +163,18 @@ module.exports = {
     if (merged.mpdProxyEnabled === undefined) merged.mpdProxyEnabled = true;
     return merged;
   },
-  saveConfig: (cfg) => writeJsonFile(CONFIG_FILE, { ...DEFAULT_CONFIG, ...cfg }),
+  saveConfig: (cfg) => {
+    const current = readJsonFile(CONFIG_FILE, DEFAULT_CONFIG);
+    const toSave = { ...DEFAULT_CONFIG, ...current, ...cfg };
+    return writeJsonFile(CONFIG_FILE, toSave);
+  },
   getChannels: () => readJsonFile(CHANNELS_FILE, []),
   saveChannels: (channels) => writeJsonFile(CHANNELS_FILE, channels),
   getCustomChannels: () => readJsonFile(CUSTOM_CHANNELS_FILE, []),
   saveCustomChannels: (channels) => writeJsonFile(CUSTOM_CHANNELS_FILE, channels),
   getGroupOrder,
   saveGroupOrder,
+  getChannelLcnMap,
+  saveChannelLcnMap,
   renameGroup
 };

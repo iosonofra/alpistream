@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>iosonofratv</title>
   <link rel="stylesheet" href="css/tv.css">
-  <!-- Vendor player libraries (Hls.js & mpegts.js) -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
+  <!-- Local bundled player libraries (Zero latency & offline resilience) -->
+  <script src="js/vendor/webOSTV.js"></script>
+  <script src="js/vendor/hls.min.js"></script>
+  <script src="js/vendor/mpegts.min.js"></script>
 </head>
 <body class="tv-body">
   <!-- Sfondo Video a Tutto Schermo -->
@@ -34,6 +35,7 @@
         <span class="brand-title">IOSONOFRA<span class="brand-highlight">TV</span></span>
       </div>
       <div class="header-status">
+        <button id="btn-open-guide" class="header-guide-btn"><span class="key-badge color-yellow">■</span> Guida TV</button>
         <span id="active-server-badge" class="badge badge-server">Cloud</span>
         <span id="active-channel-counter" class="channel-counter">0 canali</span>
         <span id="tv-clock" class="tv-clock">--:--</span>
@@ -62,16 +64,94 @@
           <!-- Inseriti dinamicamente via JS -->
         </div>
       </section>
+
+      <!-- Colonna 3: Mini-Player PiP & Scheda Dettagli EPG Canale Evidenziato -->
+      <aside id="preview-column" class="tv-column preview-column">
+        <div class="column-header">
+          <span class="column-title">IN ONDA / DETTAGLI</span>
+        </div>
+        <!-- Segnaposto Mini-Player: la finestra video si ancora qui in PiP -->
+        <div id="mini-player-anchor" class="mini-player-anchor">
+          <div class="pip-frame-glow"></div>
+          <div class="pip-status-badge"><span class="live-dot">●</span> IN DIRETTA</div>
+        </div>
+
+        <!-- Scheda Informativa Completa Canale Evidenziato col Cursore -->
+        <div id="focused-channel-card" class="focused-channel-card">
+          <div class="card-channel-header">
+            <div class="card-logo-container">
+              <img id="card-channel-logo" src="" alt="" class="card-logo" onerror="this.style.display='none'">
+            </div>
+            <div class="card-channel-meta">
+              <div class="card-lcn-row">
+                <span id="card-channel-lcn" class="card-lcn">CH 1</span>
+                <span id="card-channel-group" class="card-group">NAZIONALI</span>
+              </div>
+              <h3 id="card-channel-title" class="card-title">Nome Canale</h3>
+            </div>
+          </div>
+
+          <div class="card-epg-section">
+            <div class="card-now-box">
+              <div class="card-now-header">
+                <span class="card-tag">ORA IN ONDA</span>
+                <span id="card-epg-time" class="card-time">--:-- - --:--</span>
+              </div>
+              <h4 id="card-epg-title" class="card-prog-title">Caricamento programma...</h4>
+              <div id="card-epg-genre" class="card-genre"></div>
+              <div class="card-progress-bar">
+                <div id="card-epg-progress" class="card-progress-fill" style="width: 0%;"></div>
+              </div>
+              <p id="card-epg-desc" class="card-desc">Nessuna informazione o trama disponibile per questo evento.</p>
+            </div>
+
+            <div class="card-next-box">
+              <span class="card-next-label">A SEGUIRE:</span>
+              <div class="card-next-content">
+                <span id="card-next-title" class="card-next-title">Nessun evento successivo</span>
+                <span id="card-next-time" class="card-next-time"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <!-- Guida Tasti Telecomando Rapida in Basso -->
     <footer class="tv-footer-hints">
-      <div class="hint-item"><span class="key-badge">▲▼</span> Canale</div>
+      <div class="hint-item"><span class="key-badge">▲▼</span> Canale / Zapping</div>
       <div class="hint-item"><span class="key-badge">◄►</span> Categoria / Canali</div>
-      <div class="hint-item"><span class="key-badge">OK</span> Riproduci</div>
+      <div class="hint-item"><span class="key-badge">OK</span> Sintonizza a schermo intero</div>
+      <div class="hint-item"><span class="key-badge color-yellow">■</span> Guida TV (GUIDE)</div>
       <div class="hint-item"><span class="key-badge">BACK</span> Schermo intero</div>
       <div class="hint-item"><span class="key-badge color-blue">■</span> Impostazioni</div>
     </footer>
+  </div>
+
+  <!-- Banner Flottante Zapping Rapido Sky Glass (Tasti Ch +/- e Frecce a Tutto Schermo) -->
+  <div id="tv-zapping-banner" class="tv-zapping-banner hidden">
+    <div class="zap-banner-card">
+      <div class="zap-badge-col">
+        <span id="zap-channel-lcn" class="zap-lcn">CH 1</span>
+        <div class="zap-logo-box">
+          <img id="zap-channel-logo" src="" alt="" class="zap-logo" onerror="this.style.display='none'">
+        </div>
+      </div>
+      <div class="zap-info-col">
+        <div class="zap-channel-row">
+          <h3 id="zap-channel-title" class="zap-channel-title">Nome Canale</h3>
+          <span id="zap-channel-group" class="zap-group-badge">GENERALE</span>
+          <span id="zap-status-pill" class="zap-status-pill">SINTONIZZA...</span>
+        </div>
+        <div class="zap-prog-row">
+          <span id="zap-prog-title" class="zap-prog-title">Caricamento guida TV...</span>
+          <span id="zap-prog-time" class="zap-prog-time">--:-- - --:--</span>
+        </div>
+        <div class="zap-progress-track">
+          <div id="zap-prog-progress" class="zap-progress-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- OSD Inferiore a Scomparsa (Player Info & EPG) -->
@@ -97,6 +177,65 @@
           <span class="next-label">A seguire:</span>
           <span id="osd-epg-next-title" class="next-title">Nessuna informazione</span>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Schermata Guida TV Completa (Sky Glass Timeline Grid) -->
+  <div id="tv-guide-modal" class="tv-guide-modal hidden">
+    <div class="guide-container">
+      <div class="guide-header">
+        <div class="guide-title-box">
+          <span class="guide-logo-icon">📅</span>
+          <span class="guide-main-title">GUIDA TV SKY GLASS</span>
+          <span id="guide-group-badge" class="guide-group-badge">TUTTI I CANALI</span>
+        </div>
+        <div class="guide-header-actions">
+          <span class="guide-hint"><b>OK</b> Guarda / Trama • <b>BACK</b> Torna alla TV</span>
+          <span id="guide-clock" class="tv-clock">--:--</span>
+        </div>
+      </div>
+
+      <!-- Barra Fasce Orarie -->
+      <div class="guide-time-axis" id="guide-time-axis">
+        <div class="time-axis-channel-header">CANALE / ORA</div>
+        <div class="time-slots-wrapper" id="guide-time-slots">
+          <!-- Generati via JS -->
+        </div>
+      </div>
+
+      <!-- Griglia Canali & Eventi -->
+      <div class="guide-grid-viewport" id="guide-grid-viewport">
+        <div class="guide-grid-content" id="guide-grid-content">
+          <!-- Righe canali generate via JS -->
+        </div>
+      </div>
+
+      <!-- Preview Informativa in Basso durante la navigazione -->
+      <div class="guide-footer">
+        <div class="footer-prog-preview" id="guide-active-preview">
+          <div class="preview-title" id="preview-prog-title">Caricamento programmazione...</div>
+          <div class="preview-meta" id="preview-prog-meta"></div>
+          <div class="preview-desc" id="preview-prog-desc"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Dettaglio Programma Futuro (Trama & Info) -->
+  <div id="tv-event-detail-modal" class="tv-modal hidden">
+    <div class="modal-card event-detail-card">
+      <div class="modal-header">
+        <span id="event-detail-channel" class="badge badge-server">Canale</span>
+        <span id="event-detail-time" class="event-time-badge">--:-- - --:--</span>
+      </div>
+      <div class="modal-body">
+        <h2 id="event-detail-title" class="event-detail-title">Titolo Programma</h2>
+        <p id="event-detail-category" class="event-detail-category"></p>
+        <p id="event-detail-desc" class="event-detail-desc">Nessuna descrizione disponibile.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-close-event-detail" class="tv-btn tv-btn-primary">Chiudi (BACK)</button>
       </div>
     </div>
   </div>

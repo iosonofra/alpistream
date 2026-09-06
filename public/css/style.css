@@ -1229,6 +1229,115 @@ input:checked + .slider:before {
   color: #fff;
 }
 
+/* ORDINAMENTO CANALI & LCN */
+.sortable-channel-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background-color: var(--bg-tertiary, #1f2430);
+  border: 1px solid var(--border-color, #2d3342);
+  border-radius: 8px;
+  padding: 10px 16px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.sortable-channel-item:hover {
+  border-color: var(--accent-purple, #8a2be2);
+  background-color: rgba(138, 43, 226, 0.05);
+}
+
+.sortable-channel-item.dragging {
+  opacity: 0.4;
+  border-style: dashed;
+}
+
+.sortable-channel-item.drag-over {
+  border-color: #00f0ff;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+}
+
+.drag-handle {
+  font-size: 18px;
+  color: var(--text-muted, #777);
+  cursor: grab;
+  padding: 4px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.channel-order-logo img {
+  width: 42px;
+  height: 32px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.channel-order-details {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.channel-order-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-order-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.channel-order-actions .btn-move-up,
+.channel-order-actions .btn-move-down {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color, #333);
+  color: var(--text-secondary, #aaa);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.channel-order-actions .btn-move-up:hover,
+.channel-order-actions .btn-move-down:hover {
+  background: var(--accent-purple, #8a2be2);
+  color: #fff;
+}
+
+.channel-order-lcn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.channel-order-lcn label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #00f0ff;
+}
+
+.order-lcn-input {
+  width: 75px !important;
+  text-align: center;
+  font-weight: 700;
+  color: #00f0ff;
+  border-color: rgba(0, 240, 255, 0.3) !important;
+  background-color: rgba(0, 0, 0, 0.3) !important;
+}
+
 /* RESPONSIVE */
 @media (max-width: 900px) {
   .livetv-container { grid-template-columns: 1fr; height: auto; }

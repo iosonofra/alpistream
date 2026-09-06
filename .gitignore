@@ -9,11 +9,10 @@ Thumbs.db
 .idea/
 *.zip
 
-# Dati runtime generati dinamicamente (evita conflitti con git pull)
-data/channels.json
-data/custom_channels.json
-data/events.json
-data/epg.xml
-data/epg.xml.gz
+# Dati runtime generati dinamicamente e configurazioni utente (evita conflitti e reset con git pull)
+data/*.json
+data/*.xml
+data/*.xml.gz
+!data/.gitkeep
 scratch/
 

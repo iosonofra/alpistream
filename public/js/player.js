@@ -190,12 +190,15 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           url: aceStreamUrl
         }, {
           enableWorker: false,
-          lazyLoadMaxDuration: 3 * 60,
-          seekType: 'range',
-          liveBufferLatencyChasing: false,
-          liveBufferLatencyMaxLatency: 6,
-          liveBufferLatencyMinRemain: 2,
-          autoCleanupSourceBuffer: true
+          lazyLoad: false,
+          seekType: 'param',
+          liveBufferLatencyChasing: true,
+          liveBufferLatencyMaxLatency: 3.5,
+          liveBufferLatencyMinRemain: 1.0,
+          autoCleanupSourceBuffer: true,
+          autoCleanupMaxBackwardDuration: 60,
+          autoCleanupMinBackwardDuration: 30,
+          fixAudioTimestampGap: true
         });
 
         mpegPlayer.on(mpegts.Events.ERROR, (t, d, i) => {
@@ -257,12 +260,15 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           url: absoluteMpdUrl
         }, {
           enableWorker: false,
-          lazyLoadMaxDuration: 3 * 60,
-          seekType: 'range',
-          liveBufferLatencyChasing: false,
-          liveBufferLatencyMaxLatency: 5,
-          liveBufferLatencyMinRemain: 1.5,
-          autoCleanupSourceBuffer: true
+          lazyLoad: false,
+          seekType: 'param',
+          liveBufferLatencyChasing: true,
+          liveBufferLatencyMaxLatency: 3.5,
+          liveBufferLatencyMinRemain: 1.0,
+          autoCleanupSourceBuffer: true,
+          autoCleanupMaxBackwardDuration: 60,
+          autoCleanupMinBackwardDuration: 30,
+          fixAudioTimestampGap: true
         });
 
         mpegPlayer.on(mpegts.Events.ERROR, (errType, errDetail, errInfo) => {
