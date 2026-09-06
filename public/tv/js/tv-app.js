@@ -728,7 +728,12 @@
   // Gestione Spinner e Stato Player con Polling Attivo e Auto-Dismiss
   function showSpinner(text) {
     if (el.spinnerText) el.spinnerText.textContent = text || 'Caricamento...';
-    if (el.spinner) el.spinner.classList.remove('hidden');
+    if (el.spinner) {
+      el.spinner.classList.remove('hidden');
+      el.spinner.style.display = 'flex';
+      el.spinner.style.opacity = '1';
+      el.spinner.style.visibility = 'visible';
+    }
     startActivePlaybackMonitor();
   }
 
@@ -739,7 +744,12 @@
       clearInterval(activePlayMonitorInterval);
       activePlayMonitorInterval = null;
     }
-    if (el.spinner) el.spinner.classList.add('hidden');
+    if (el.spinner) {
+      el.spinner.classList.add('hidden');
+      el.spinner.style.display = 'none';
+      el.spinner.style.opacity = '0';
+      el.spinner.style.visibility = 'hidden';
+    }
   }
 
   // Monitor attivo continuo: non appena i frame o il playback sono avviati, nascondi SUBITO lo spinner!
@@ -750,9 +760,9 @@
       checks++;
       if (!el.video) return;
 
-      // Se il video è avviato (non in pausa) ed ha dati pronti (readyState >= 2 o time che scorre)
+      // Se il video è avviato (non in pausa) ed ha dati pronti (readyState >= 1 o time che scorre o frame decodificati)
       const isVideoActive = !el.video.paused && (
-        el.video.readyState >= 2 ||
+        el.video.readyState >= 1 ||
         el.video.currentTime > 0 ||
         (el.video.webkitDecodedFrameCount && el.video.webkitDecodedFrameCount > 0)
       );
@@ -762,8 +772,8 @@
         return;
       }
 
-      // Timeout di sicurezza massimo: dopo 8 secondi nascondi comunque per evitare blocchi permanenti a video
-      if (checks > 40) { // 40 * 200ms = 8s
+      // Timeout di sicurezza massimo: dopo 5 secondi nascondi comunque per evitare blocchi permanenti a video
+      if (checks > 25) { // 25 * 200ms = 5s
         hideSpinner();
       }
     }, 200);

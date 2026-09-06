@@ -69,6 +69,15 @@ body.tv-body {
   border-radius: 16px;
   z-index: 5;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8);
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.video-spinner.hidden,
+.hidden {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .spinner-ring {

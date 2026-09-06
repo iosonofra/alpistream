@@ -148,15 +148,30 @@ class TvPlayer {
       return;
     }
 
-    // 2. Riconoscimento stream MPEG-TS Server Copy (FFmpeg MPD o ClearKey proxy)
+    // 2. Riconoscimento stream MPEG-TS Server Copy o canali MPD/ClearKey
     const isMpegTs = channel.streamMode === 'ffmpeg_copy' ||
       channel.mpdProxy === true ||
       (channel.id && channel.id.endsWith('_ffmpeg')) ||
       streamUrl.includes('/stream/mpd/') ||
       streamUrl.endsWith('.ts');
 
+    const isMpdOrDrm = !isMpegTs && (
+      streamUrl.includes('.mpd') ||
+      streamUrl.includes('/mpd') ||
+      (channel.kodi_props && channel.kodi_props['inputstream.adaptive.manifest_type'] === 'mpd') ||
+      (channel.clearkey && !['0000', '0:0', '0'].includes(String(channel.clearkey).trim()))
+    );
+
     if (isMpegTs) {
       this.playMpegTs(streamUrl);
+      return;
+    }
+
+    if (isMpdOrDrm) {
+      const auth = this.getAuthParam();
+      const fallbackUrl = `${this.serverBase}/stream/mpd/${channel.id}.ts${auth}`;
+      console.log('[TvPlayer] Canale MPD/DRM rilevato, avvio diretto FFmpeg stream copy:', fallbackUrl);
+      this.playMpegTs(fallbackUrl);
       return;
     }
 
@@ -252,6 +267,13 @@ class TvPlayer {
 
   playMpegTs(url) {
     console.log('[TvPlayer] Avvio riproduzione MPEG-TS:', url);
+
+    if (this.video) {
+      try {
+        this.video.removeAttribute('src');
+        this.video.load();
+      } catch (e) {}
+    }
 
     // Se mpegts.js è supportato (MSE)
     if (window.mpegts && mpegts.isSupported()) {
