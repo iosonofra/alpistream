@@ -25,6 +25,8 @@ try {
 
 const storage = require('./services/storage');
 const { channelUsesWarp, rewriteWarpPlaylist } = require('./services/stream-routing');
+const { prepareDashManifest, resolveDashResource } = require('./services/dash-manifest');
+const { addStreamClient, writeStreamChunk } = require('./services/stream-clients');
 const { redactDiagnostic, createFfmpegDiagnostics, parseStreamHeaders, requireMpdDocument } = require('./services/mpd-diagnostics');
 const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
 const epgManager = require('./services/epg');
@@ -558,8 +560,9 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
     }
 
     const response = await axios.get(url, axiosOpts);
+    if (res.destroyed) { response.data.destroy(); return; }
 
-    req.on('close', () => {
+    res.on('close', () => {
       if (response && response.data && typeof response.data.destroy === 'function') {
         response.data.destroy();
       }
@@ -581,7 +584,7 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
         let xml = Buffer.concat(chunks).toString('utf-8');
 
         // 0. Ottimizzazione live latency: livella la SegmentTimeline e inietta suggestedPresentationDelay
-        xml = trimSegmentTimelineInManifest(xml, 25);
+        // Preserve the original timeline: the player controls live latency.
 
         // 1. Inietta tag W3C ClearKey UUID affinché tutti i browser (Chrome, Firefox, Safari, Edge) accettino la riproduzione EME
         const clearKeyTag = '<ContentProtection schemeIdUri="urn:uuid:1077efec-c0b2-4d02-ace3-3c1e52e2fb4b" value="ClearKey1.0"/>';
@@ -595,63 +598,20 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
           }
         }
 
-        // 2. Inietta o normalizza BaseURL per i segmenti:
-        // Se useWarp è attivo, registra la sessione in dashSegmentSessions e inietta il BaseURL del proxy MandraKodi
-        // per consentire a Kodi (inputstream.adaptive), OTT Navigator, TiviMate e Web Player di scaricare i segmenti via WARP
-        if (useWarp) {
-          const sessionId = crypto.createHash('md5').update(url).digest('hex').substring(0, 12);
-
-          let cdnBase = url.substring(0, url.lastIndexOf('/') + 1);
-          const periodMatches = [...xml.matchAll(/<BaseURL>([^<]+)<\/BaseURL>/gi)];
-          if (periodMatches.length > 0) {
-            const lastBase = periodMatches[periodMatches.length - 1][1].trim();
-            try {
-              cdnBase = new URL(lastBase, url).href;
-            } catch (e) {
-              cdnBase = lastBase;
-            }
-          }
-
-          dashSegmentSessions.set(sessionId, {
-            cdnBaseUrl: cdnBase,
-            targetUrl: url,
-            useWarp: true,
-            headers: {
-              ...headers,
-              'User-Agent': ua || headers['User-Agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-              'Referer': referer || 'https://dazn.com/',
-              'Origin': origin || 'https://dazn.com'
-            },
-            createdAt: Date.now(),
-            lastAccess: Date.now()
-          });
-
-          // Determina il BaseURL del proxy visibile dal client
-          const clientBaseUrl = `${req.protocol}://${req.get('host')}`;
-          const proxyBaseUrl = `${clientBaseUrl}/internal/dash-seg/${sessionId}/`;
-
-          // Rimuovi vecchi BaseURL e inietta proxyBaseUrl sia su MPD che Period
-          xml = xml.replace(/<BaseURL>[^<]+<\/BaseURL>/gi, '');
-          xml = xml.replace(/(<Period\b[^>]*>)/gi, `$1\n    <BaseURL>${proxyBaseUrl}</BaseURL>`);
-          xml = xml.replace(/(<MPD\b[^>]*>)/i, `$1\n  <BaseURL>${proxyBaseUrl}</BaseURL>`);
-        } else {
-          // Comportamento standard non-WARP: inietta BaseURL assoluto se assente
-          let remoteBaseDir = url;
-          if (remoteBaseDir.includes('?')) remoteBaseDir = remoteBaseDir.split('?')[0];
-          const lastSlash = remoteBaseDir.lastIndexOf('/');
-          if (lastSlash !== -1) {
-            remoteBaseDir = remoteBaseDir.substring(0, lastSlash + 1);
-          }
-
-          if (!xml.includes('<BaseURL')) {
-            xml = xml.replace(/(<MPD[^>]*>)/i, `$1\n    <BaseURL>${remoteBaseDir}</BaseURL>`);
-          } else {
-            // Se BaseURL è presente ma relativo (non http:// né https://)
-            xml = xml.replace(/<BaseURL\b[^>]*>(?!https?:\/\/)([\s\S]*?)<\/BaseURL>/gi, (m, inner) => {
-              const cleanRel = (inner || '').trim().replace(/^\.\//, '');
-              return `<BaseURL>${remoteBaseDir}${cleanRel}</BaseURL>`;
-            });
-          }
+        const sourceUrl = response.request?.res?.responseUrl || url;
+        const sessionId = crypto.createHash('sha256').update(JSON.stringify([url, headers, useWarp])).digest('hex').substring(0, 24);
+        let session = dashSegmentSessions.get(sessionId);
+        if (!session) {
+          session = { resources: new Map(), createdAt: Date.now() };
+          dashSegmentSessions.set(sessionId, session);
+        }
+        Object.assign(session, { targetUrl: sourceUrl, useWarp, headers, lastAccess: Date.now() });
+        const clientBaseUrl = `${req.protocol}://${req.get('host')}`;
+        try {
+          xml = prepareDashManifest(xml, sourceUrl, session, `${clientBaseUrl}/internal/dash-seg/${sessionId}/`);
+        } catch (error) {
+          res.status(502).send(redactDiagnostic(error.message));
+          return;
         }
 
         res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
@@ -662,7 +622,7 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
       return;
     }
 
-    if (isM3u8 && useWarp) {
+    if (isM3u8) {
       const chunks = [];
       response.data.on('data', chunk => chunks.push(chunk));
       response.data.on('end', () => {
@@ -674,7 +634,7 @@ app.get(['/api/stream/proxy.mpd', '/api/stream/proxy.m3u8', '/api/stream/proxy']
         const manifestUrl = response.request?.res?.responseUrl || url;
         m3u8Str = rewriteWarpPlaylist(m3u8Str, manifestUrl, baseUrl, {
           referer, origin, ua, token: req.query.token
-        });
+        }, useWarp);
 
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -733,7 +693,7 @@ function streamAceEngine(hash, req, res) {
   let activeClientReq = null;
 
   // Chiusura immediata della richiesta ad Ace Engine quando il client si disconnette
-  req.on('close', () => {
+  res.on('close', () => {
     console.log(`[AceStream Proxy] Client disconnesso per hash ${cleanHash}. Interruzione stream.`);
     if (activeClientReq) {
       activeClientReq.destroy();
@@ -741,6 +701,7 @@ function streamAceEngine(hash, req, res) {
   });
 
   function requestStream(requestPath, redirectCount = 0) {
+    if (res.destroyed) return;
     if (redirectCount > 5) {
       if (!res.headersSent) {
         res.status(508).send('Troppi redirect da Ace Stream Engine.');
@@ -922,7 +883,7 @@ app.all('/ace/*', (req, res) => {
     }
   });
 
-  req.on('close', () => {
+  res.on('close', () => {
     clientReq.destroy();
   });
 
@@ -1113,216 +1074,13 @@ setInterval(() => {
   }
 }, 120000);
 
-// Funzione di livellamento SegmentTimeline e riduzione latenza live (elimina fino a 70-80s di ritardo su FFmpeg e player DASH)
-function trimSegmentTimelineInManifest(manifest, keepCount = 25) {
-  let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
-
-  // 1. Inietta o aggiorna suggestedPresentationDelay="PT10S", timeShiftBufferDepth="PT120S",
-  // e forza type="dynamic" rimuovendo durate fisse per evitare che FFmpeg esca a fine buffer su canali live statici (es. DAZN)
-  cleaned = cleaned.replace(/<MPD\b([^>]*)>/i, (match, attrs) => {
-    let a = attrs;
-    if (/type=["']static["']/i.test(a)) {
-      a = a.replace(/type=["']static["']/i, 'type="dynamic"');
-    }
-    a = a.replace(/\s*\bmediaPresentationDuration="[^"]*"/i, '');
-    if (!a.includes('minimumUpdatePeriod=')) {
-      a = ` minimumUpdatePeriod="PT2S"${a}`;
-    }
-    if (a.includes('suggestedPresentationDelay=')) {
-      a = a.replace(/suggestedPresentationDelay="[^"]*"/i, 'suggestedPresentationDelay="PT10S"');
-    } else {
-      a = ` suggestedPresentationDelay="PT10S"${a}`;
-    }
-    if (a.includes('timeShiftBufferDepth=')) {
-      a = a.replace(/timeShiftBufferDepth="[^"]*"/i, 'timeShiftBufferDepth="PT120S"');
-    }
-    return `<MPD${a}>`;
-  });
-
-  // Rimuovi duration dai Period per non interrompere flussi live continui
-  cleaned = cleaned.replace(/<Period\b([^>]*)\bduration="[^"]*"/gi, '<Period$1');
-
-  // 2. Livella le SegmentTimeline per non passare ore di storico a FFmpeg/demuxer
-  cleaned = cleaned.replace(/<SegmentTemplate([\s\S]*?)<\/SegmentTemplate>/gi, (tplMatch) => {
-    if (!tplMatch.includes('<SegmentTimeline>') && !tplMatch.includes('<SegmentTimeline ')) {
-      return tplMatch;
-    }
-
-    const startNumMatch = tplMatch.match(/\bstartNumber="(\d+)"/i);
-    let totalSkipped = 0;
-
-    let updatedTpl = tplMatch.replace(/<SegmentTimeline>([\s\S]*?)<\/SegmentTimeline>/gi, (tlMatch, tlContent) => {
-      const allSTags = tlContent.match(/<S\b[\s\S]*?(?:\/>|<\/S>)/gi) || [];
-      if (allSTags.length === 0) return tlMatch;
-
-      let currentTime = 0n;
-      const entries = [];
-
-      for (const sTag of allSTags) {
-        const tMatch = sTag.match(/\bt="(\d+)"/i);
-        const dMatch = sTag.match(/\bd="(\d+)"/i);
-        const rMatch = sTag.match(/\br="(-?\d+)"/i);
-
-        if (!dMatch) continue;
-        const d = BigInt(dMatch[1]);
-        if (tMatch) {
-          currentTime = BigInt(tMatch[1]);
-        }
-        const rRaw = rMatch ? parseInt(rMatch[1], 10) : 0;
-        const r = rRaw >= 0 ? rRaw : 0;
-        const count = r + 1;
-        const startT = currentTime;
-        const endT = startT + BigInt(count) * d;
-        currentTime = endT;
-
-        entries.push({
-          sTag,
-          startT,
-          endT,
-          d,
-          r,
-          count
-        });
-      }
-
-      const totalSegments = entries.reduce((sum, e) => sum + e.count, 0);
-      const targetKeptSegments = keepCount + 1;
-      if (totalSegments <= targetKeptSegments) {
-        return tlMatch;
-      }
-
-      const segmentsToSkip = totalSegments - targetKeptSegments;
-      totalSkipped = Math.max(totalSkipped, segmentsToSkip);
-
-      let skippedSoFar = 0;
-      const keptTags = [];
-      let isFirstKept = true;
-
-      for (const entry of entries) {
-        if (skippedSoFar + entry.count <= segmentsToSkip) {
-          skippedSoFar += entry.count;
-          continue;
-        }
-
-        if (isFirstKept) {
-          const skipInThisEntry = segmentsToSkip - skippedSoFar;
-          const remainingInThisEntry = entry.count - skipInThisEntry;
-          const newStartT = entry.startT + BigInt(skipInThisEntry) * entry.d;
-          const newR = remainingInThisEntry - 1;
-
-          let tagStr = `<S t="${newStartT.toString()}" d="${entry.d.toString()}"`;
-          if (newR > 0) {
-            tagStr += ` r="${newR}"`;
-          }
-          tagStr += `/>`;
-          keptTags.push(tagStr);
-
-          skippedSoFar = segmentsToSkip;
-          isFirstKept = false;
-        } else {
-          keptTags.push(entry.sTag.trim());
-        }
-      }
-
-      return `<SegmentTimeline>\n          ${keptTags.join('\n          ')}\n        </SegmentTimeline>`;
-    });
-
-    if (totalSkipped > 0 && startNumMatch) {
-      const startNum = parseInt(startNumMatch[1], 10);
-      const newStartNum = startNum + totalSkipped;
-      updatedTpl = updatedTpl.replace(`startNumber="${startNum}"`, `startNumber="${newStartNum}"`);
-    }
-
-    return updatedTpl;
-  });
-
-  return cleaned;
-}
-
-// Funzione di ottimizzazione del manifest MPD per eliminare micro-buffering, stuttering e forzare 1080p full HD
+// Preserve the source timeline and resolve addressing independently for each track.
 function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
-  let cleaned = typeof manifest !== 'string' ? String(manifest) : manifest;
-
-  // 0. Livellamento live timeline e aggancio rapido sul live edge (elimina il salto indietro di FFmpeg)
-  cleaned = trimSegmentTimelineInManifest(cleaned, 25);
-
-  // 1. Gestione BaseURL per i segmenti
-  if (sessionId) {
-    const session = dashSegmentSessions.get(sessionId);
-    if (session) {
-      // Estrai il BaseURL effettivo della CDN dal manifest originale
-      const periodMatches = [...cleaned.matchAll(/<BaseURL>([^<]+)<\/BaseURL>/gi)];
-      let rawBase = '';
-      if (periodMatches.length > 1) {
-        rawBase = periodMatches[periodMatches.length - 1][1].trim();
-      } else if (periodMatches.length === 1) {
-        rawBase = periodMatches[0][1].trim();
-      }
-
-      if (rawBase) {
-        try {
-          session.cdnBaseUrl = new URL(rawBase, targetUrl).href;
-        } catch (e) {
-          session.cdnBaseUrl = rawBase;
-        }
-      } else {
-        try {
-          session.cdnBaseUrl = new URL('./', targetUrl).href;
-        } catch (e) {
-          session.cdnBaseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-        }
-      }
-
-      // Rimuovi tutti i vecchi tag BaseURL
-      cleaned = cleaned.replace(/<BaseURL>[^<]+<\/BaseURL>/gi, '');
-
-      // Inietta il nuovo BaseURL puntato al proxy locale sia a livello MPD che Period
-      const localBaseUrl = `http://127.0.0.1:${port || PORT}/internal/dash-seg/${sessionId}/`;
-      cleaned = cleaned.replace(/<Period\b([^>]*)>/gi, `<Period$1>\n    <BaseURL>${localBaseUrl}</BaseURL>`);
-      cleaned = cleaned.replace(/<MPD\b([^>]*)>/i, `<MPD$1>\n  <BaseURL>${localBaseUrl}</BaseURL>`);
-    }
-  } else {
-    // Comportamento standard per non-WARP: inietta BaseURL assoluto se assente
-    if (!cleaned.includes('<BaseURL>') && !cleaned.includes('<BaseURL ')) {
-      const baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/') + 1);
-      cleaned = cleaned.replace(/<Period\b/i, `<BaseURL>${baseUrl}</BaseURL>\n  <Period`);
-    }
-  }
-
-  // 2. In ogni AdaptationSet video (riconosciuto da contentType="video", mimeType="video/..." o attributo width/height),
-  // isola e mantieni SOLO la Representation a massima risoluzione/bitrate (es. 1080p 50fps a 10 Mbps).
-  // Questo elimina sia i tentativi di downgrade/ABR di FFmpeg sia il blocco a 216p/360p della prima traccia!
-  cleaned = cleaned.replace(/<AdaptationSet\b([\s\S]*?)<\/AdaptationSet>/gi, (match) => {
-    const isVideo = /contentType="video"/i.test(match) || /mimeType="video\//i.test(match) || /width="\d+"/i.test(match);
-    if (!isVideo) return match;
-
-    const openingTagMatch = match.match(/<AdaptationSet\b[^>]*>/i);
-    const openingTag = openingTagMatch ? openingTagMatch[0] : '<AdaptationSet>';
-    const content = match.replace(/<AdaptationSet\b[^>]*>/i, '').replace(/<\/AdaptationSet>/i, '');
-
-    const reps = content.match(/<Representation[\s\S]*?(?:<\/Representation>|\/>)/gi) || [];
-    if (reps.length > 1) {
-      const bestRep = getBestVideoRepresentation(reps);
-      const withoutReps = content.replace(/<Representation[\s\S]*?(?:<\/Representation>|\/>)/gi, '');
-      return `${openingTag}${withoutReps}\n      ${bestRep}\n    </AdaptationSet>`;
-    }
-    return match;
-  });
-
-  // 3. Per l'audio, mantieni solo il primo AdaptationSet audio (evita download paralleli e conflitti di tracce)
-  let keptAudio = false;
-  cleaned = cleaned.replace(/<AdaptationSet\b([\s\S]*?)<\/AdaptationSet>/gi, (match) => {
-    const isAudio = /contentType="audio"/i.test(match) || /mimeType="audio\//i.test(match);
-    if (!isAudio) return match;
-
-    if (!keptAudio) {
-      keptAudio = true;
-      return match;
-    }
-    return '';
-  });
-
-  return cleaned;
+  const session = dashSegmentSessions.get(sessionId);
+  if (!session) throw new Error('Sessione DASH non trovata');
+  session.lastAccess = Date.now();
+  return prepareDashManifest(manifest, targetUrl, session,
+    `http://127.0.0.1:${port || PORT}/internal/dash-seg/${sessionId}/`, true);
 }
 
 // Endpoint proxy segmenti DASH (.dash / .m4s / init segment)
@@ -1341,7 +1099,9 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
 
     let targetSegmentUrl;
     try {
-      targetSegmentUrl = resolveSegmentUrl(filename, session.cdnBaseUrl, session.targetUrl);
+      targetSegmentUrl = filename.startsWith('r/')
+        ? resolveDashResource(filename, session)
+        : resolveSegmentUrl(filename + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''), session.cdnBaseUrl, session.targetUrl);
     } catch (e) {
       console.error(`[DASH Segment Proxy] Errore risoluzione URL segmento "${filename}": ${e.message}`);
       return res.status(400).send(`URL segmento non valido: ${e.message}`);
@@ -1350,7 +1110,7 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
     const axiosOpts = {
       responseType: 'arraybuffer',
       timeout: 15000,
-      headers: session.headers || {}
+      headers: { ...(session.headers || {}), ...(req.headers.range ? { Range: req.headers.range } : {}) }
     };
     if (session.useWarp) {
       const agent = getWarpAgent();
@@ -1376,7 +1136,9 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
       }
     }
     if (!res.headersSent && !res.writableEnded) {
-      res.writeHead(200, {
+      res.writeHead(response.status, {
+        ...(response.headers['content-range'] ? { 'Content-Range': response.headers['content-range'] } : {}),
+        'Accept-Ranges': 'bytes',
         'Content-Type': response.headers['content-type'] || 'video/mp4',
         'Content-Length': response.data.length,
         'Access-Control-Allow-Origin': '*',
@@ -1386,11 +1148,9 @@ app.get('/internal/dash-seg/:sessionId/*', async (req, res) => {
     }
   } catch (err) {
     const status = (err.response && err.response.status) ? err.response.status : 502;
-    if (status !== 404) {
-      console.warn(`[DASH Segment Proxy] Errore fetch (${status}): ${err.message}`);
-    }
+    console.warn(`[DASH Segment Proxy] session=${req.params.sessionId} HTTP=${status}: ${redactDiagnostic(err.message)}`);
     if (!res.headersSent && !res.writableEnded) {
-      res.status(status).send(err.message);
+      res.status(status).send(redactDiagnostic(err.message));
     }
   }
 });
@@ -1430,13 +1190,13 @@ app.get('/internal/mpd', async (req, res) => {
     requireMpdDocument(response.data);
 
     let effectiveSessionId = sessionId;
-    if (useWarp && !effectiveSessionId) {
+    if (!effectiveSessionId) {
       effectiveSessionId = crypto.createHash('md5').update(targetUrl).digest('hex').substring(0, 16);
       if (!dashSegmentSessions.has(effectiveSessionId)) {
         dashSegmentSessions.set(effectiveSessionId, {
           targetUrl,
           headers: reqHeaders,
-          useWarp: true,
+          useWarp,
           cdnBaseUrl: '',
           createdAt: Date.now(),
           lastAccess: Date.now()
@@ -1444,7 +1204,7 @@ app.get('/internal/mpd', async (req, res) => {
       }
     }
 
-    const processed = cleanAndBufferMpd(response.data, targetUrl, effectiveSessionId, PORT);
+    const processed = cleanAndBufferMpd(response.data, response.request?.res?.responseUrl || targetUrl, effectiveSessionId, PORT);
     res.setHeader('Content-Type', 'application/dash+xml; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(processed);
@@ -1659,50 +1419,21 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     return res.end();
   }
 
-  // Se esiste già uno stream attivo per questo canale, riutilizzalo
-  if (activeMpdStreams.has(streamKey)) {
-    const existing = activeMpdStreams.get(streamKey);
-    if (existing.closeTimer) {
-      clearTimeout(existing.closeTimer);
-      existing.closeTimer = null;
-      console.log(`[MPD ClearKey Proxy] Riattivato stream esistente per "${title}" (timer annullato).`);
-    }
-
-    writeMpegTsHeaders(res);
-
-    // Invia il burst circolare recente (gli ultimi 512KB-768KB) allineato a 188 byte
-    if (existing.recentBytes > 0 && existing.recentChunks.length > 0) {
-      try {
-        const fullBuf = Buffer.concat(existing.recentChunks, existing.recentBytes);
-        const burstTarget = 768 * 1024;
-        let slice = fullBuf.length > burstTarget ? fullBuf.subarray(fullBuf.length - burstTarget) : fullBuf;
-        const remainder = slice.length % 188;
-        if (remainder > 0) slice = slice.subarray(remainder);
-        res.write(slice);
-      } catch (e) {}
-    }
-
-    existing.listeners.add(res);
-    console.log(`[MPD ClearKey Proxy] Client agganciato a "${title}" (Listener attivi: ${existing.listeners.size})`);
-
-    req.on('close', () => {
-      existing.listeners.delete(res);
-      console.log(`[MPD ClearKey Proxy] Client disconnesso da "${title}" (Listener rimanenti: ${existing.listeners.size})`);
-      if (existing.listeners.size === 0) {
-        console.log(`[MPD ClearKey Proxy] Avvio timer grazia (10s) prima della chiusura per "${title}"`);
-        existing.closeTimer = setTimeout(() => {
-          console.log(`[MPD ClearKey Proxy] Timer scaduto: terminazione processo FFmpeg per "${title}"`);
-          try { existing.proc.kill('SIGKILL'); } catch (e) {}
-          activeMpdStreams.delete(streamKey);
-        }, 10000);
-      }
-    });
-
+  const closeIdleStream = state => {
+    state.closed = true;
+    if (activeMpdStreams.get(streamKey) === state) activeMpdStreams.delete(streamKey);
+    dashSegmentSessions.delete(state.sessionId);
+    try { state.proc.kill('SIGKILL'); } catch (_) {}
+  };
+  const existing = activeMpdStreams.get(streamKey);
+  if (existing && !existing.closed && existing.proc.exitCode === null) {
+    // Join fresh packets; replaying an arbitrary tail can start mid-PES and rewind A/V.
+    addStreamClient(existing, res, () => closeIdleStream(existing));
     return;
   }
 
   // Genera sessionId univoco per il proxying dei segmenti DASH
-  const sessionId = crypto.createHash('md5').update(streamKey).digest('hex').substring(0, 16);
+  const sessionId = crypto.randomBytes(12).toString('hex');
 
   dashSegmentSessions.set(sessionId, {
     targetUrl,
@@ -1727,7 +1458,7 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_on_network_error', '1',
-    '-reconnect_on_http_error', '4xx,5xx',
+    '-reconnect_on_http_error', '502,503,504',
     '-reconnect_delay_max', '2',
     '-rw_timeout', '15000000',
     '-tcp_nodelay', '1',
@@ -1747,9 +1478,8 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     '-map', '0:v:0?',
     '-map', '0:a:0?',
 
-    // Video: stream copy con iniezione SPS/PPS su ogni keyframe (elimina macroblock/glitch)
+    // Video stream copy: il muxer MPEG-TS seleziona il filtro AVC/HEVC corretto
     '-c:v', 'copy',
-    '-bsf:v', 'h264_mp4toannexb',
 
     // Audio: normalizzazione timeline continua (elimina i blocchi e desync A/V sui cambi segmento DASH)
     '-c:a', 'aac',
@@ -1793,36 +1523,26 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     key: streamKey,
     title,
     proc: ffmpegProc,
-    listeners: new Set([res]),
+    listeners: new Set(),
+    sessionId,
+    closed: false,
     recentChunks: [],
     recentBytes: 0,
     maxRecentBytes: 1024 * 1024, // 1MB buffer circolare per client concorrenti
     closeTimer: null,
-    startedAt: Date.now()
+    startedAt: Date.now(),
+    lastDataAt: Date.now()
   };
 
-  ffmpegProc.stdout.on('data', (chunk) => {
-    // Aggiorna cache circolare per i client successivi
-    streamState.recentChunks.push(chunk);
-    streamState.recentBytes += chunk.length;
-    while (streamState.recentBytes > streamState.maxRecentBytes && streamState.recentChunks.length > 1) {
-      const rm = streamState.recentChunks.shift();
-      streamState.recentBytes -= rm.length;
+  const progressTimer = setInterval(() => {
+    if (!streamState.closed && Date.now() - streamState.lastDataAt > 45000) {
+      console.warn(`[MPD ClearKey Proxy] Nessun dato da 45s, chiusura session=${sessionId}`);
+      closeIdleStream(streamState);
     }
-
-    // Invia immediatamente lo stream a tutti i client attivi
-    for (const r of streamState.listeners) {
-      try {
-        if (!r.writableEnded && !r.destroyed) {
-          writeMpegTsHeaders(r);
-          r.write(chunk);
-        } else {
-          streamState.listeners.delete(r);
-        }
-      } catch (err) {
-        streamState.listeners.delete(r);
-      }
-    }
+  }, 5000);
+  ffmpegProc.stdout.on('data', chunk => {
+    streamState.lastDataAt = Date.now();
+    writeStreamChunk(streamState, chunk, writeMpegTsHeaders);
   });
 
   const diagnostics = createFfmpegDiagnostics();
@@ -1838,6 +1558,8 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
   });
 
   ffmpegProc.on('close', (code) => {
+    clearInterval(progressTimer);
+    streamState.closed = true;
     if (code !== 0 && code !== 255 && code !== null) {
       console.warn(`[MPD ClearKey Proxy] FFmpeg terminato con codice ${code} session=${sessionId} WARP=${useWarp ? 'on' : 'off'}:\n${diagnostics.text()}`);
     }
@@ -1851,25 +1573,12 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
         }
       } catch (e) {}
     }
-    activeMpdStreams.delete(streamKey);
+    if (activeMpdStreams.get(streamKey) === streamState) activeMpdStreams.delete(streamKey);
     dashSegmentSessions.delete(sessionId);
   });
 
-  req.on('close', () => {
-    streamState.listeners.delete(res);
-    console.log(`[MPD ClearKey Proxy] Client disconnesso da "${title}" (Listener rimanenti: ${streamState.listeners.size})`);
-    if (streamState.listeners.size === 0) {
-      console.log(`[MPD ClearKey Proxy] Avvio timer grazia (10s) prima di chiudere FFmpeg per "${title}"`);
-      streamState.closeTimer = setTimeout(() => {
-        console.log(`[MPD ClearKey Proxy] Timer scaduto. Terminazione processo FFmpeg per "${title}"`);
-        try { streamState.proc.kill('SIGKILL'); } catch (e) {}
-        activeMpdStreams.delete(streamKey);
-        dashSegmentSessions.delete(sessionId);
-      }, 10000);
-    }
-  });
-
   activeMpdStreams.set(streamKey, streamState);
+  addStreamClient(streamState, res, () => closeIdleStream(streamState));
 }
 
 // 1. Endpoint MPD Proxy per client IPTV / Kodi / VLC / Smart TV

@@ -9,12 +9,13 @@ function channelUsesWarp(ch, cfg = {}) {
       cfg.warpGroups.some(w => w && w.trim().toLowerCase() === g.trim().toLowerCase())));
 }
 
-function rewriteWarpPlaylist(manifest, sourceUrl, proxyBase, headers = {}) {
+function rewriteWarpPlaylist(manifest, sourceUrl, proxyBase, headers = {}, useWarp = true) {
   const proxyUri = uri => {
     if (!uri || /^(data|skd):/i.test(uri)) return uri;
     const target = new URL(uri, sourceUrl);
     if (!['http:', 'https:'].includes(target.protocol)) return uri;
-    const params = new URLSearchParams({ url: target.href, warp: '1' });
+    const params = new URLSearchParams({ url: target.href });
+    if (useWarp) params.set('warp', '1');
     for (const name of ['referer', 'origin', 'ua', 'token']) {
       if (headers[name]) params.set(name, headers[name]);
     }

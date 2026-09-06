@@ -62,7 +62,7 @@ class TvPlayer {
   checkPlayback() {
     if (!this.video || !this.currentChannel) return;
     // A user pause must not restart the channel; initial buffering is still monitored.
-    if (this.started && this.video.paused && !this.video.error) return;
+    if (this.started && this.video.paused && !this.video.error && !this.video.ended) return;
     const curr = this.video.currentTime;
     const advancing = this.lastPlaybackTime !== null && curr > this.lastPlaybackTime + 0.05;
     this.lastPlaybackTime = curr;
@@ -173,10 +173,12 @@ class TvPlayer {
   }
 
   attemptPlay(playPromise, context = '') {
+    const session = this.sessionId;
     if (!playPromise || typeof playPromise.catch !== 'function') {
       return Promise.resolve();
     }
     return playPromise.catch(err => {
+      if (session !== this.sessionId || !this.currentChannel || err.name !== 'NotAllowedError') return;
       console.warn(`[TvPlayer] Autoplay ${context} bloccato:`, err);
       // Fallback per policy del browser (audio non consentito prima di interazione utente):
       // Avvia con volume azzerato (consentito da tutti i browser) e mostra prompt di sblocco
@@ -197,6 +199,7 @@ class TvPlayer {
   }
 
   showAutoplayPrompt() {
+    this.hideAutoplayPrompt();
     if (typeof document === 'undefined') return;
     let prompt = document.getElementById('autoplay-unmute-prompt');
     if (!prompt) {
@@ -219,6 +222,7 @@ class TvPlayer {
         window.removeEventListener('touchstart', unlock, true);
       }
     };
+    this.autoplayUnlock = unlock;
     prompt.onclick = unlock;
     if (typeof window !== 'undefined') {
       window.addEventListener('click', unlock, true);
@@ -228,10 +232,15 @@ class TvPlayer {
   }
 
   hideAutoplayPrompt() {
+    if (this.autoplayUnlock) {
+      ['click', 'keydown', 'touchstart'].forEach(event => window.removeEventListener(event, this.autoplayUnlock, true));
+      this.autoplayUnlock = null;
+    }
     if (typeof document === 'undefined') return;
     const prompt = document.getElementById('autoplay-unmute-prompt');
     if (prompt) {
       prompt.classList.add('hidden');
+      prompt.onclick = null;
     }
   }
 

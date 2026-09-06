@@ -252,3 +252,17 @@ test('WARP transport streams retain MPEG-TS detection behind the proxy query', a
   assert.ok(player.mpegInstance);
   assert.equal(player.hlsInstance, null);
 });
+
+test('aborted and stale play promises cannot mute the next channel', async () => {
+  const { player, video } = setup();
+  await player.play(channel);
+  video.muted = false;
+  await player.attemptPlay(Promise.reject({ name: 'AbortError' }));
+  assert.equal(video.muted, false);
+  let reject;
+  const pending = player.attemptPlay(new Promise((resolve, fail) => { reject = fail; }));
+  await player.play({ ...channel, id: 'next' });
+  reject({ name: 'NotAllowedError' });
+  await pending;
+  assert.equal(video.muted, false);
+});

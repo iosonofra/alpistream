@@ -59,26 +59,11 @@ function buildProxyUrl(rawUrl, headersObj, useWarp = false) {
   let cleanUrl = getCleanUrl(rawUrl);
   if (!cleanUrl) return '';
 
-  // Se l'URL contiene già un proxy interno (/api/stream/proxy?url=...),
-  // estrai l'URL target effettivo per evitare loop ricorsivi 502
-  while (cleanUrl && (cleanUrl.includes('/api/stream/proxy') || cleanUrl.includes('%2Fapi%2Fstream%2Fproxy'))) {
-    try {
-      const decoded = decodeURIComponent(cleanUrl);
-      const m = decoded.match(/[?&]url=([^&]+)/);
-      if (m && m[1]) {
-        cleanUrl = decodeURIComponent(m[1]);
-      } else {
-        break;
-      }
-    } catch (e) {
-      break;
-    }
-  }
-
-  // Non proxyare se punta a un endpoint nativo (/stream/...) o se appartiene a flussi diretti HTSport/TVNow
-  if (cleanUrl.startsWith('/stream/') || (cleanUrl.includes(window.location.host) && cleanUrl.includes('/stream/')) || cleanUrl.includes('chunk.tvnow247.today') || cleanUrl.includes('wideiptv.top') || cleanUrl.includes('dlhd.st')) {
-    return cleanUrl;
-  }
+  // Keep existing local routes intact; decoding a whole signed URL corrupts its query.
+  const target = new URL(cleanUrl, window.location.origin);
+  const local = target.origin === window.location.origin;
+  if ((local && (target.pathname.startsWith('/stream/') || target.pathname.startsWith('/api/stream/proxy') || target.pathname.startsWith('/internal/dash-seg/'))) ||
+      ['chunk.tvnow247.today', 'wideiptv.top', 'dlhd.st'].includes(target.hostname)) return cleanUrl;
 
   const params = new URLSearchParams({
     url: cleanUrl,
@@ -108,9 +93,68 @@ async function cleanupPlayer(playerInstance) {
   } catch (e) {}
 }
 
-// Riproduzione su un elemento Video con Shaka Player, Hls.js o mpegts.js
-async function playOnVideoElement(videoEl, ch, playerInstance) {
+// One session owns all engines and callbacks for a video element, including fallbacks.
+async function playOnVideoElement(videoEl, ch, playerInstance, recoveryCount = 0) {
   if (!videoEl || !ch) return null;
+  const previous = videoEl._playSession;
+  const session = {
+    engine: null, closed: false, timer: null, recoveryCount,
+    active() { return !this.closed && videoEl._playSession === this; },
+    own(engine) { this.engine = engine; return engine; },
+    async destroy() {
+      if (this.closed) return;
+      this.closed = true;
+      clearInterval(this.timer);
+      if (videoEl._playSession === this) videoEl.pause();
+      if (this.unmute) this.unmute();
+      const engine = this.engine;
+      this.engine = null;
+      await cleanupPlayer(engine);
+    }
+  };
+  videoEl._playSession = session;
+  if (previous) await previous.destroy();
+  else if (playerInstance) await cleanupPlayer(playerInstance);
+  if (!session.active()) return session;
+  videoEl.pause();
+  videoEl.removeAttribute('src');
+  videoEl.load();
+  try {
+    await startVideoSession(videoEl, ch, session);
+  } catch (error) {
+    await session.destroy();
+    if (window.showToast) showToast('Impossibile avviare il flusso');
+    return session;
+  }
+  if (!session.active()) return session;
+  let lastTime = null, lastFrames = null, frozen = 0, videoFrozen = 0, stable = 0, started = false;
+  session.timer = setInterval(() => {
+    if (!session.active() || videoEl.ended || (started && videoEl.paused && !videoEl.error)) return;
+    const advancing = lastTime !== null && videoEl.currentTime > lastTime + 0.05;
+    lastTime = videoEl.currentTime;
+    const quality = videoEl.getVideoPlaybackQuality ? videoEl.getVideoPlaybackQuality() : null;
+    const frames = quality && quality.totalVideoFrames > 0 ? quality.totalVideoFrames - (quality.droppedVideoFrames || 0) : null;
+    const stuck = videoEl.videoWidth > 0 && frames !== null && lastFrames !== null && frames === lastFrames;
+    lastFrames = frames;
+    frozen = advancing ? 0 : frozen + 1;
+    videoFrozen = stuck ? videoFrozen + 1 : 0;
+    if (advancing && !stuck) { started = true; stable++; } else stable = 0;
+    if (stable >= 30) session.recoveryCount = 0;
+    if (Math.max(frozen, videoFrozen) < (started ? 15 : 45)) return;
+    clearInterval(session.timer);
+    if (session.recoveryCount >= 2) {
+      session.destroy();
+      if (window.showToast) showToast('Flusso non disponibile: riprova il canale');
+    } else {
+      playOnVideoElement(videoEl, ch, null, session.recoveryCount + 1).catch(() => {});
+    }
+  }, 1000);
+  return session;
+}
+
+async function startVideoSession(videoEl, ch, session) {
+  if (!session.active()) return null;
+  let playerInstance = null;
   const cleanUrl = getCleanUrl(ch.url);
   const headersObj = parseHeaders(ch.headers, ch.url);
   const clearkey = ch.clearkey || (ch.kodi_props ? ch.kodi_props['inputstream.adaptive.license_key'] : '');
@@ -132,7 +176,7 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
       return wgl === lower;
     });
   };
-  const useWarp = !isHtsport && !!(cfg.warpEnabled && (ch.useWarp === true || isGroupInWarp(ch.group) || isGroupInWarp(ch.customGroup)));
+  const useWarp = !isHtsport && !!(ch.useWarp === true || ch.streamMode === 'warp_direct' || ch.streamMode === 'ffmpeg_copy' || (cfg.warpEnabled && (isGroupInWarp(ch.group) || isGroupInWarp(ch.customGroup))));
 
   // 1. Riconoscimento stream AceStream
   let aceHash = '';
@@ -163,19 +207,23 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     const aceHlsUrl = new URL(`/stream/ace/${aceHash}/manifest.m3u8${tokenParam}`, window.location.origin).href;
 
     let fallbackDone = false;
-    const triggerHlsFallback = () => {
+    const triggerHlsFallback = async () => {
+      if (!session.active()) return null;
       if (fallbackDone) return;
       fallbackDone = true;
+      await cleanupPlayer(session.engine);
+      if (!session.active()) return null;
+      session.engine = null;
       console.log('[Player] Passaggio a fallback HLS AceStream:', aceHlsUrl);
       if (window.Hls && Hls.isSupported()) {
-        const hls = new Hls({ maxBufferLength: 10, enableWorker: false });
+        const hls = session.own(new Hls({ maxBufferLength: 20, backBufferLength: 30, enableWorker: false }));
         hls.loadSource(aceHlsUrl);
         hls.attachMedia(videoEl);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+        hls.on(Hls.Events.MANIFEST_PARSED, () => { if (session.active()) videoEl.play().catch(() => {}); });
         if (window.showToast) showToast('🔄 Passato a modalità HLS AceStream');
         return hls;
       } else {
-        videoEl.src = aceStreamUrl;
+        videoEl.src = aceHlsUrl;
         videoEl.play().catch(() => {});
         return null;
       }
@@ -191,14 +239,16 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
         }, {
           enableWorker: false,
           lazyLoad: false,
-                    liveBufferLatencyChasing: false,
+          liveBufferLatencyChasing: false,
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60,
           autoCleanupMinBackwardDuration: 15,
           fixAudioTimestampGap: true
         });
 
+        session.own(mpegPlayer);
         mpegPlayer.on(mpegts.Events.ERROR, (t, d, i) => {
+          if (!session.active() || session.engine !== mpegPlayer) return;
           console.warn('[AceStream mpegts Error]', t, d, i);
           triggerHlsFallback();
         });
@@ -207,11 +257,16 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
         mpegPlayer.load();
         mpegPlayer.play().catch(err => {
           console.warn('[Player] Autoplay mpegts bloccato:', err);
-          if (videoEl && !videoEl.muted) {
+          if (session.active() && session.engine === mpegPlayer && err.name === 'NotAllowedError' && !videoEl.muted) {
             videoEl.muted = true;
             mpegPlayer.play().catch(() => {});
             const unmute = () => {
               if (videoEl) videoEl.muted = false;
+              window.removeEventListener('click', unmute, true);
+              window.removeEventListener('keydown', unmute, true);
+              window.removeEventListener('touchstart', unmute, true);
+            };
+            session.unmute = () => {
               window.removeEventListener('click', unmute, true);
               window.removeEventListener('keydown', unmute, true);
               window.removeEventListener('touchstart', unmute, true);
@@ -247,8 +302,10 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
 
   // Helper per avvio fallback FFmpeg MPD ClearKey via mpegts.js
   const tryMpdFfmpegFallback = async () => {
+    if (!session.active()) return null;
     const hasClearKey = clearkey && !['0000', '0:0', '0'].includes(String(clearkey).trim());
-    if ((cleanUrl.includes('.mpd') || hasClearKey) && window.mpegts && mpegts.isSupported()) {
+    const isTs = /\.ts(?:[?#]|$)/i.test(cleanUrl) || cleanUrl.includes('/stream/mpd/');
+    if ((isTs || cleanUrl.includes('.mpd') || hasClearKey) && window.mpegts && mpegts.isSupported()) {
       try {
         const params = new URLSearchParams();
         if (cleanUrl) params.set('url', cleanUrl);
@@ -261,24 +318,26 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           ? `/stream/mpd/${encodeURIComponent(ch.id)}?${params.toString()}`
           : `/stream/mpd?${params.toString()}`;
 
-        const absoluteMpdUrl = new URL(mpdPath, window.location.origin).href;
+        const absoluteMpdUrl = new URL(isTs ? buildProxyUrl(cleanUrl, headersObj, useWarp) : mpdPath, window.location.origin).href;
 
         console.log('[Player] Avvio fallback FFmpeg MPD ClearKey via mpegts.js:', absoluteMpdUrl);
         const mpegPlayer = mpegts.createPlayer({
-          type: 'mse',
+          type: 'mpegts',
           isLive: true,
           url: absoluteMpdUrl
         }, {
           enableWorker: false,
           lazyLoad: false,
-                    liveBufferLatencyChasing: false,
+          liveBufferLatencyChasing: false,
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60,
           autoCleanupMinBackwardDuration: 15,
           fixAudioTimestampGap: true
         });
 
+        session.own(mpegPlayer);
         mpegPlayer.on(mpegts.Events.ERROR, (errType, errDetail, errInfo) => {
+          if (!session.active() || session.engine !== mpegPlayer) return;
           console.warn('[Fallback mpegts.js Error]', errType, errDetail, errInfo);
         });
 
@@ -288,6 +347,8 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
         if (window.showToast) showToast('🔄 Passato a motore FFmpeg (compatibilità stream)');
         return mpegPlayer;
       } catch (mErr) {
+        await cleanupPlayer(session.engine);
+        session.engine = null;
         console.warn('[Player] Fallback mpegts.js non riuscito:', mErr);
       }
     }
@@ -295,7 +356,7 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
   };
 
   // Se il canale richiede esplicitamente il motore FFmpeg Stream Copy (Canale duplicato WARP + Proxy MPD FFmpeg)
-  if (ch.streamMode === 'ffmpeg_copy' || ch.mpdProxy === true || (ch.id && ch.id.endsWith('_ffmpeg'))) {
+  if (ch.streamMode === 'ffmpeg_copy' || ch.mpdProxy === true || (ch.id && ch.id.endsWith('_ffmpeg')) || /\.ts(?:[?#]|$)/i.test(cleanUrl) || cleanUrl.includes('/stream/mpd/')) {
     console.log('[Player] Canale configurato per motore FFmpeg Stream Copy diretto:', ch.title);
     if (playerInstance) {
       await cleanupPlayer(playerInstance);
@@ -305,25 +366,27 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     if (mpegInstance) return mpegInstance;
   }
 
+  let fatalFallbackOccurred = false;
   if (window.shaka && shaka.Player.isBrowserSupported()) {
     try {
       const isShakaInstance = playerInstance && (playerInstance instanceof shaka.Player || (typeof playerInstance.getNetworkingEngine === 'function' && typeof playerInstance.configure === 'function'));
       if (!isShakaInstance) {
         if (playerInstance) await cleanupPlayer(playerInstance);
-        playerInstance = new shaka.Player(videoEl);
+        if (!session.active()) return null;
+        playerInstance = session.own(new shaka.Player(videoEl));
       } else {
         await playerInstance.unload();
       }
 
-      let fatalFallbackOccurred = false;
       const onFatalError = async (detail) => {
-        if (fatalFallbackOccurred) return;
+        if (fatalFallbackOccurred || !session.active()) return;
         fatalFallbackOccurred = true;
         console.warn('[Player Shaka Warning / Errore fatale]', detail);
         if (playerInstance) {
           await cleanupPlayer(playerInstance);
           playerInstance = null;
         }
+        if (!session.active()) return null;
         try {
           videoEl.removeAttribute('src');
           videoEl.load();
@@ -331,15 +394,14 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
 
         const fb = await tryMpdFfmpegFallback();
         if (fb) {
-          if (videoEl.id === 'livetv-video') shakaPlayerMain = fb;
-          if (videoEl.id === 'modal-video') shakaPlayerModal = fb;
+          session.own(fb);
         } else {
           if (window.showToast) showToast('⚠️ Impossibile riprodurre il flusso');
         }
       };
 
       playerInstance.addEventListener('error', (e) => {
-        if (e && e.detail) {
+        if (session.active() && e && e.detail) {
           e.detail.handled = true;
           if (e.detail.severity === 2 || e.detail.code === 4032 || e.detail.code === 1001) {
             onFatalError(e.detail);
@@ -386,53 +448,29 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
         console.log(`[Player] Applicate ${Object.keys(clearKeysMap).length} chiavi ClearKey DRM`);
       }
 
-      // Calcola cartella base del flusso remoto per risolvere eventuali segmenti relativi
-      let baseRemoteUrl = cleanUrl;
-      if (baseRemoteUrl.includes('?')) {
-        baseRemoteUrl = baseRemoteUrl.split('?')[0];
-      }
-      const lastSlash = baseRemoteUrl.lastIndexOf('/');
-      const baseDir = lastSlash !== -1 ? baseRemoteUrl.substring(0, lastSlash + 1) : '';
-
-      // Configura Request Filter per inoltrare i segmenti tramite proxy con CORS e Referer
       const netEngine = playerInstance.getNetworkingEngine();
       netEngine.clearAllRequestFilters();
       netEngine.registerRequestFilter((type, request) => {
-        // NON proxyare le richieste interne di licenza DRM ClearKey o i dati data:/blob:
-        if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) return;
-
-        let uri = request.uris[0];
-        if (!uri || uri.startsWith('data:') || uri.startsWith('blob:')) return;
-
-        const decodedUri = decodeURIComponent(uri);
-        // Se punta già al proxy o ad un endpoint stream locale, non alterare
-        if (decodedUri.includes('/api/stream/proxy') || decodedUri.includes('/stream/')) return;
-
-        // Se Shaka ha risolto un segmento relativo sul nostro host, ricostruisci l'URL CDN reale
-        if (decodedUri.includes('/api/stream/')) {
-          const rel = decodedUri.substring(decodedUri.indexOf('/api/stream/') + '/api/stream/'.length);
-          uri = baseDir + rel;
-        } else if (uri.startsWith('http://localhost') || uri.startsWith('http://127.0.0.1') || uri.includes(window.location.host)) {
-          try {
-            const urlObj = new URL(uri);
-            const rel = urlObj.pathname.replace(/^\//, '');
-            uri = baseDir + rel;
-          } catch (e) {}
-        }
-
-        request.uris = [buildProxyUrl(uri, headersObj, useWarp)];
+        if (!session.active() || type === shaka.net.NetworkingEngine.RequestType.LICENSE) return;
+        request.uris = request.uris.map(uri => {
+          if (!uri || uri.startsWith('data:') || uri.startsWith('blob:')) return uri;
+          return buildProxyUrl(uri, headersObj, useWarp);
+        });
       });
 
       const initialProxyUrl = buildProxyUrl(cleanUrl, headersObj, useWarp);
       await playerInstance.load(initialProxyUrl);
+      if (!session.active() || fatalFallbackOccurred) return null;
       videoEl.play().catch(() => {});
       return playerInstance;
     } catch (err) {
+      if (!session.active() || fatalFallbackOccurred || session.engine !== playerInstance) return null;
       console.warn('[Player] Shaka non avviato per questo stream, tentativo con fallback:', err.message);
       if (playerInstance) {
         await cleanupPlayer(playerInstance);
         playerInstance = null;
       }
+      if (!session.active()) return null;
       try {
         videoEl.removeAttribute('src');
         videoEl.load();
@@ -440,16 +478,17 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     }
   }
 
+  if (!session.active()) return null;
   // Fallback 1: Se Shaka non è supportato o ha fallito
   const fbPlayer = await tryMpdFfmpegFallback();
   if (fbPlayer) return fbPlayer;
 
   // Fallback 2: Hls.js se è flusso m3u8
   if (window.Hls && Hls.isSupported() && (cleanUrl.includes('.m3u8') || cleanUrl.includes('hls'))) {
-    const hls = new Hls({ maxBufferLength: 10 });
+    const hls = session.own(new Hls({ maxBufferLength: 20, backBufferLength: 30 }));
     hls.loadSource(buildProxyUrl(cleanUrl, headersObj, useWarp));
     hls.attachMedia(videoEl);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { if (session.active()) videoEl.play().catch(() => {}); });
     return hls;
   }
 
@@ -553,7 +592,8 @@ async function playLiveTvChannel(ch) {
 
   const videoEl = document.getElementById('livetv-video');
   if (videoEl) {
-    shakaPlayerMain = await playOnVideoElement(videoEl, ch, shakaPlayerMain);
+    const session = await playOnVideoElement(videoEl, ch, shakaPlayerMain);
+    if (session && session.active()) shakaPlayerMain = session;
   }
 }
 
@@ -569,7 +609,8 @@ async function openModalPlayer(ch) {
   document.getElementById('modal-player-drm').innerText = ch.clearkey ? `ClearKey DRM: ${ch.clearkey.substring(0, 32)}...` : 'Stream Libero / HLS';
 
   const videoEl = document.getElementById('modal-video');
-  shakaPlayerModal = await playOnVideoElement(videoEl, ch, shakaPlayerModal);
+  const session = await playOnVideoElement(videoEl, ch, shakaPlayerModal);
+  if (session && session.active()) shakaPlayerModal = session;
 }
 
 function closeModalPlayer() {
