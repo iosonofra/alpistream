@@ -31,6 +31,13 @@
     epgTimer: null
   };
 
+  // Performance tracking variables (O(1) updates)
+  let activePlayingChannelEl = null;
+  let currentFocusedChannelEl = null;
+  let currentFocusedGroupEl = null;
+  let bufferingDebounceTimer = null;
+  let loadingWatchdogTimer = null;
+
   // Elementi DOM
   const el = {
     video: document.getElementById('tv-video'),
@@ -218,13 +225,15 @@
     });
   }
 
-  function selectGroup(idx) {
+  function selectGroup(idx, loadChannels = true) {
     state.focusedGroupIdx = idx;
     const g = state.groups[idx];
     if (!g) return;
-    state.currentGroup = g.id;
-    filterChannelsByGroup(g.id);
-    renderGroups();
+    if (loadChannels) {
+      state.currentGroup = g.id;
+      filterChannelsByGroup(g.id);
+      renderGroups();
+    }
   }
 
   function filterChannelsByGroup(groupId) {
@@ -246,10 +255,13 @@
     renderChannels();
   }
 
-  // Renderizzazione Canali
+  // Renderizzazione Canali ad Alte Prestazioni (DocumentFragment & Lazy Loading)
   function renderChannels() {
     if (!el.channelsList) return;
-    el.channelsList.innerHTML = '';
+    activePlayingChannelEl = null;
+    currentFocusedChannelEl = null;
+
+    const fragment = document.createDocumentFragment();
 
     state.filteredChannels.forEach((ch, idx) => {
       const isPlaying = state.currentPlayingChannel && state.currentPlayingChannel.id === ch.id;
@@ -260,13 +272,16 @@
       item.dataset.index = idx;
       item.id = `channel-item-${idx}`;
 
+      if (isPlaying) activePlayingChannelEl = item;
+      if (isFocused) currentFocusedChannelEl = item;
+
       const logoSrc = ch.customLogo || ch.logo || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="50" height="40" viewBox="0 0 50 40"><rect width="50" height="40" fill="%231a2233"/><text x="25" y="24" fill="%2300e5ff" font-size="14" font-family="sans-serif" text-anchor="middle">TV</text></svg>';
       const epgInfo = getEpgForChannel(ch);
 
       item.innerHTML = `
         <span class="channel-num">${idx + 1}</span>
         <div class="channel-logo-wrapper">
-          <img class="channel-logo-img" src="${escapeHtml(logoSrc)}" alt="" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'50\\' height=\\'40\\'><rect width=\\'50\\' height=\\'40\\' fill=\\'%23222\\'/></svg>'">
+          <img class="channel-logo-img" loading="lazy" decoding="async" src="${escapeHtml(logoSrc)}" alt="" onerror="this.style.display='none'">
         </div>
         <div class="channel-text-info">
           <div class="channel-title-row">
@@ -286,8 +301,11 @@
         playChannelByIndex(idx);
       });
 
-      el.channelsList.appendChild(item);
+      fragment.appendChild(item);
     });
+
+    el.channelsList.innerHTML = '';
+    el.channelsList.appendChild(fragment);
 
     scrollFocusedIntoView();
   }
@@ -356,11 +374,15 @@
     const ch = state.filteredChannels[idx];
     state.currentPlayingChannel = ch;
 
-    // Aggiorna classe active-playing sugli elementi canali
-    const items = el.channelsList.querySelectorAll('.channel-item');
-    items.forEach((it, i) => {
-      it.classList.toggle('active-playing', i === idx);
-    });
+    // Aggiornamento O(1) classe active-playing senza rieseguire querySelectorAll
+    const targetItem = document.getElementById(`channel-item-${idx}`);
+    if (activePlayingChannelEl && activePlayingChannelEl !== targetItem) {
+      activePlayingChannelEl.classList.remove('active-playing');
+    }
+    if (targetItem) {
+      targetItem.classList.add('active-playing');
+      activePlayingChannelEl = targetItem;
+    }
 
     // Avvia riproduzione video
     window.tvPlayer.play(ch);
@@ -457,28 +479,34 @@
 
     // Navigazione a schermo intero (overlay nascosto)
     if (!state.overlayVisible) {
-      if (keyCode === 13 || key === 'Enter') { // OK mostra overlay
+      if (keyCode === 13 || key === 'Enter') { // Tasto OK
+        // Se l'OSD inferiore è visibile, premi OK per aprire la lista canali completa
+        if (el.bottomOsd && !el.bottomOsd.classList.contains('hidden')) {
+          toggleOverlay(true);
+        } else {
+          // Altrimenti mostra OSD informativo
+          if (state.currentPlayingChannel) showBottomOsd(state.currentPlayingChannel);
+        }
+        e.preventDefault();
+        return;
+      }
+      if (keyCode === 38 || key === 'ArrowUp') { // Freccia SU: canale precedente
+        zapChannel(-1);
+        e.preventDefault();
+        return;
+      }
+      if (keyCode === 40 || key === 'ArrowDown') { // Freccia GIÙ: canale successivo
+        zapChannel(1);
+        e.preventDefault();
+        return;
+      }
+      if (keyCode === 37 || key === 'ArrowLeft') { // Freccia SINISTRA: apri lista canali
         toggleOverlay(true);
         e.preventDefault();
         return;
       }
-      if (keyCode === 38 || key === 'ArrowUp') {
-        zapChannel(-1);
-        e.preventDefault();
-        return;
-      }
-      if (keyCode === 39 || key === 'ArrowRight') {
-        zapChannel(1);
-        e.preventDefault();
-        return;
-      }
-      if (keyCode === 40 || key === 'ArrowDown') {
-        zapChannel(1);
-        e.preventDefault();
-        return;
-      }
-      if (keyCode === 37 || key === 'ArrowLeft') {
-        zapChannel(-1);
+      if (keyCode === 39 || key === 'ArrowRight') { // Freccia DESTRA: mostra OSD info
+        if (state.currentPlayingChannel) showBottomOsd(state.currentPlayingChannel);
         e.preventDefault();
         return;
       }
@@ -514,7 +542,7 @@
     if (state.focusZone === 'groups') {
       const next = state.focusedGroupIdx + delta;
       if (next >= 0 && next < state.groups.length) {
-        selectGroup(next);
+        selectGroup(next, false);
         updateFocusVisuals();
       }
     } else if (state.focusZone === 'channels') {
@@ -528,7 +556,13 @@
 
   function moveFocusHorizontal(delta) {
     if (delta > 0 && state.focusZone === 'groups') {
-      // Passa a canali
+      // Passa a canali: se la categoria selezionata è cambiata, caricala ora
+      const g = state.groups[state.focusedGroupIdx];
+      if (g && state.currentGroup !== g.id) {
+        state.currentGroup = g.id;
+        filterChannelsByGroup(g.id);
+        renderGroups();
+      }
       setFocusZone('channels');
     } else if (delta < 0 && state.focusZone === 'channels') {
       // Passa a gruppi
@@ -547,45 +581,54 @@
       // Nascondi overlay per passare al video a tutto schermo
       toggleOverlay(false);
     } else if (state.focusZone === 'groups') {
+      const g = state.groups[state.focusedGroupIdx];
+      if (g && state.currentGroup !== g.id) {
+        state.currentGroup = g.id;
+        filterChannelsByGroup(g.id);
+        renderGroups();
+      }
       setFocusZone('channels');
     }
   }
 
+  // Aggiornamento O(1) focus visivo (ultra-rapido per CPU Smart TV)
   function updateFocusVisuals() {
-    // Gruppi
-    const groupItems = el.groupsList ? el.groupsList.querySelectorAll('.group-item') : [];
-    groupItems.forEach((it, i) => {
-      it.classList.toggle('focused', state.focusZone === 'groups' && i === state.focusedGroupIdx);
-    });
-
-    // Canali
-    const chanItems = el.channelsList ? el.channelsList.querySelectorAll('.channel-item') : [];
-    chanItems.forEach((it, i) => {
-      it.classList.toggle('focused', state.focusZone === 'channels' && i === state.focusedChannelIdx);
-    });
-
-    scrollFocusedIntoView();
+    if (state.focusZone === 'channels') {
+      const target = document.getElementById(`channel-item-${state.focusedChannelIdx}`);
+      if (currentFocusedChannelEl && currentFocusedChannelEl !== target) {
+        currentFocusedChannelEl.classList.remove('focused');
+      }
+      if (target) {
+        target.classList.add('focused');
+        target.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+        currentFocusedChannelEl = target;
+      }
+    } else if (state.focusZone === 'groups') {
+      const target = el.groupsList ? el.groupsList.children[state.focusedGroupIdx] : null;
+      if (currentFocusedGroupEl && currentFocusedGroupEl !== target) {
+        currentFocusedGroupEl.classList.remove('focused');
+      }
+      if (target) {
+        target.classList.add('focused');
+        target.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+        currentFocusedGroupEl = target;
+      }
+    }
   }
 
   function scrollFocusedIntoView() {
-    if (state.focusZone === 'channels') {
-      const focusedItem = document.getElementById(`channel-item-${state.focusedChannelIdx}`);
-      if (focusedItem && el.channelsList) {
-        focusedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-    } else if (state.focusZone === 'groups') {
-      const focusedGroup = el.groupsList ? el.groupsList.children[state.focusedGroupIdx] : null;
-      if (focusedGroup) {
-        focusedGroup.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-    }
+    updateFocusVisuals();
   }
 
   function toggleOverlay(visible) {
     state.overlayVisible = visible;
     if (visible) {
       el.overlay.classList.remove('hidden');
-      updateFocusVisuals();
+      if (state.currentPlayingChannel) {
+        const pIdx = state.filteredChannels.findIndex(c => c.id === state.currentPlayingChannel.id);
+        if (pIdx >= 0) state.focusedChannelIdx = pIdx;
+      }
+      setFocusZone('channels');
     } else {
       el.overlay.classList.add('hidden');
     }
@@ -621,23 +664,39 @@
     }, 1200);
   }
 
-  // Gestione Spinner e Stato Player
+  // Gestione Spinner e Stato Player con Debounce e Watchdog
   function showSpinner(text) {
     if (el.spinnerText) el.spinnerText.textContent = text || 'Caricamento...';
     if (el.spinner) el.spinner.classList.remove('hidden');
   }
 
   function hideSpinner() {
+    clearTimeout(bufferingDebounceTimer);
+    clearTimeout(loadingWatchdogTimer);
     if (el.spinner) el.spinner.classList.add('hidden');
   }
 
   function handlePlayerStatus(status, data) {
     switch (status) {
       case 'loading':
+        clearTimeout(bufferingDebounceTimer);
         showSpinner(data.fallback ? 'Attivazione fallback stream copy...' : 'Caricamento flusso...');
+        // Watchdog di sicurezza: dopo 3 secondi, se il video sta riproducendo, nascondi lo spinner
+        clearTimeout(loadingWatchdogTimer);
+        loadingWatchdogTimer = setTimeout(() => {
+          if (el.video && !el.video.paused && el.video.currentTime > 0) {
+            hideSpinner();
+          }
+        }, 3000);
         break;
       case 'buffering':
-        showSpinner('Buffering...');
+        clearTimeout(bufferingDebounceTimer);
+        // Debounce: mostra "Buffering..." solo se l'attesa persiste oltre 800ms
+        bufferingDebounceTimer = setTimeout(() => {
+          if (el.video && (el.video.paused || el.video.readyState < 3)) {
+            showSpinner('Buffering...');
+          }
+        }, 800);
         break;
       case 'playing':
         hideSpinner();

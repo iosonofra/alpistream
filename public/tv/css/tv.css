@@ -1,13 +1,13 @@
 /* ==========================================================================
-   MandraKodi TV - 10-Foot UI Stylesheet (TiviMate & OTT Navigator Style)
-   Ottimizzato per Smart TV LG webOS, risoluzione 1080p/4K e navigazione D-Pad
+   iosonofratv - 10-Foot UI Stylesheet (TiviMate & OTT Navigator Style)
+   Ottimizzato per Smart TV LG webOS, risoluzione 1080p/4K e navigazione D-Pad ultra-fluida
    ========================================================================== */
 
 :root {
   --bg-dark: #07090e;
-  --bg-glass: rgba(14, 18, 26, 0.82);
-  --bg-glass-card: rgba(22, 28, 42, 0.72);
-  --bg-glass-active: rgba(36, 46, 68, 0.9);
+  --bg-glass: rgba(10, 14, 22, 0.96);
+  --bg-glass-card: #131926;
+  --bg-glass-active: #1e2738;
   --accent-cyan: #00e5ff;
   --accent-blue: #0070f3;
   --accent-purple: #7928ca;
@@ -15,7 +15,7 @@
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
   --border-subtle: rgba(255, 255, 255, 0.08);
-  --focus-glow: 0 0 24px rgba(0, 229, 255, 0.75), 0 0 4px #00e5ff;
+  --focus-glow: 0 0 10px rgba(0, 229, 255, 0.6);
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -63,17 +63,18 @@ body.tv-body {
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(10, 14, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   padding: 24px 36px;
   border-radius: 16px;
-  backdrop-filter: blur(8px);
   z-index: 5;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8);
 }
 
 .spinner-ring {
-  width: 50px;
-  height: 50px;
-  border: 4px solid rgba(255, 255, 255, 0.2);
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(255, 255, 255, 0.15);
   border-top-color: var(--accent-cyan);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -91,19 +92,15 @@ body.tv-body {
   width: 100%;
   height: 100%;
   z-index: 10;
-  background: linear-gradient(90deg, rgba(7, 9, 14, 0.94) 0%, rgba(7, 9, 14, 0.88) 55%, rgba(7, 9, 14, 0.2) 100%);
-  backdrop-filter: blur(12px);
+  background: rgba(8, 11, 18, 0.96);
   display: flex;
   flex-direction: column;
   padding: 24px 40px;
   opacity: 1;
-  transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
 .tv-overlay.hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(1.02);
+  display: none !important;
 }
 
 /* Header */
@@ -250,7 +247,6 @@ body.tv-body {
   align-items: center;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
 .group-item .item-count {
@@ -267,10 +263,9 @@ body.tv-body {
 }
 
 .group-item.focused {
-  background: linear-gradient(90deg, rgba(0, 229, 255, 0.25), rgba(121, 40, 202, 0.25));
-  border: 2px solid var(--accent-cyan);
-  box-shadow: var(--focus-glow);
-  transform: translateX(6px) scale(1.02);
+  background: #1b263b;
+  outline: 3px solid var(--accent-cyan);
+  outline-offset: -2px;
   color: #fff;
 }
 
@@ -302,7 +297,6 @@ body.tv-body {
   background: var(--bg-glass-card);
   border: 1px solid var(--border-subtle);
   cursor: pointer;
-  transition: all 0.15s ease;
   position: relative;
 }
 
@@ -312,10 +306,9 @@ body.tv-body {
 }
 
 .channel-item.focused {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.15), rgba(0, 229, 255, 0.2));
-  border: 2px solid var(--accent-cyan);
-  box-shadow: var(--focus-glow);
-  transform: scale(1.02);
+  background: #1b263b;
+  outline: 3px solid var(--accent-cyan);
+  outline-offset: -2px;
   z-index: 2;
 }
 
@@ -437,11 +430,10 @@ body.tv-body {
   transform: translateX(-50%);
   width: calc(100% - 80px);
   max-width: 1280px;
-  background: rgba(10, 14, 22, 0.88);
+  background: rgba(10, 14, 22, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
   border-radius: 20px;
-  backdrop-filter: blur(20px);
   padding: 20px 28px;
   z-index: 20;
   transition: opacity 0.3s ease, transform 0.3s ease;
@@ -584,8 +576,7 @@ body.tv-body {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(15px);
+  background: rgba(0, 0, 0, 0.88);
   display: flex;
   align-items: center;
   justify-content: center;

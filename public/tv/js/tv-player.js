@@ -22,9 +22,17 @@ class TvPlayer {
     this.onStatusChange = onStatusChange || (() => {});
 
     // Eventi video nativi
-    this.video.addEventListener('playing', () => {
+    this.markPlaying = () => {
       this.retryCount = 0;
       this.onStatusChange('playing', { channel: this.currentChannel });
+    };
+
+    this.video.addEventListener('playing', () => this.markPlaying());
+    this.video.addEventListener('canplay', () => this.markPlaying());
+    this.video.addEventListener('timeupdate', () => {
+      if (this.video && this.video.currentTime > 0 && !this.video.paused) {
+        this.markPlaying();
+      }
     });
 
     this.video.addEventListener('waiting', () => {
@@ -143,6 +151,12 @@ class TvPlayer {
           this.handlePlaybackError('Errore flusso MPEG-TS');
         });
 
+        if (mpegts.Events.MEDIA_INFO) {
+          this.mpegInstance.on(mpegts.Events.MEDIA_INFO, () => {
+            if (this.markPlaying) this.markPlaying();
+          });
+        }
+
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
         this.mpegInstance.play().catch(err => {
@@ -176,6 +190,10 @@ class TvPlayer {
 
         this.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
           this.video.play().catch(() => {});
+        });
+
+        this.hlsInstance.on(Hls.Events.FRAG_LOADED, () => {
+          if (this.markPlaying) this.markPlaying();
         });
 
         this.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
