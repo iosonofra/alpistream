@@ -82,6 +82,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Middleware CORS universale con supporto completo per richieste preflight OPTIONS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, HEAD, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Route dedicata per l'interfaccia Smart TV a 10 piedi (LG webOS / TiviMate style)
 app.get(['/tv', '/tv/'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'tv', 'index.html'));
@@ -193,12 +204,40 @@ app.post('/api/sources', (req, res) => {
   res.json({ success: true, activeSources });
 });
 
+// Helper per normalizzare i canali AceStream verso l'endpoint proxy centralizzato
+function normalizeAceChannel(ch) {
+  if (!ch) return ch;
+  let aceHash = ch.aceHash;
+  const checkUrls = [ch.url, ch.rawUrl];
+  for (const u of checkUrls) {
+    if (aceHash) break;
+    if (!u || typeof u !== 'string') continue;
+    if (u.startsWith('acestream://')) {
+      const h = u.replace('acestream://', '').split(/[?#|&/]/)[0].trim();
+      if (/^[a-f0-9]{40}$/i.test(h)) aceHash = h;
+    }
+    const m = u.match(/[?&]id=([a-f0-9]{40})/i) || u.match(/\/stream\/ace\/([a-f0-9]{40})/i);
+    if (m) aceHash = m[1];
+  }
+  if (aceHash) {
+    const isHls = ch.url && ch.url.includes('manifest.m3u8');
+    return {
+      ...ch,
+      source: 'acestream',
+      aceHash,
+      url: isHls ? `/stream/ace/${aceHash}/manifest.m3u8` : `/stream/ace/${aceHash}.ts`,
+      kodi_props: ch.kodi_props && ch.kodi_props['inputstream.adaptive.manifest_type'] === 'hls' ? undefined : ch.kodi_props
+    };
+  }
+  return ch;
+}
+
 // Lista Canali con ricerca e filtri
 app.get('/api/channels', (req, res) => {
   const { group, search, status, page = 1, limit = 50 } = req.query;
   const channels = storage.getChannels();
   const customChannels = storage.getCustomChannels();
-  const rawAll = [...channels, ...customChannels];
+  const rawAll = [...channels, ...customChannels].map(normalizeAceChannel);
   const groups = [...new Set(rawAll.map(c => sanitizeGroupName(c.customGroup || c.group || 'Generale')))].filter(Boolean).sort();
 
   let all = [...rawAll];
@@ -727,8 +766,10 @@ function streamAceEngine(hash, req, res) {
         return;
       }
 
+      const rawContentType = aceRes.headers['content-type'];
+      const contentType = (rawContentType && rawContentType.includes('mpegurl')) ? rawContentType : 'video/mp2t';
       res.writeHead(200, {
-        'Content-Type': aceRes.headers['content-type'] || 'video/mp2t',
+        'Content-Type': contentType,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': '*',
         'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
@@ -803,8 +844,9 @@ app.get(['/stream/ace/:hash/manifest.m3u8', '/ace/manifest.m3u8'], verifyToken, 
     });
 
     let manifest = response.data;
-    // Riscrivi eventuali percorsi assoluti dell'engine con il proxy locale di MandraKodi
+    // Riscrivi eventuali percorsi assoluti dell'engine con il proxy locale di iosonofratv
     manifest = manifest.replace(new RegExp(`http://${aceHost}/ace/`, 'gi'), '/ace/');
+    manifest = manifest.replace(/http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/ace\//gi, '/ace/');
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');

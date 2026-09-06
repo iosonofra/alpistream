@@ -136,8 +136,10 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
 
   // 1. Riconoscimento stream AceStream
   let aceHash = '';
-  if (cleanUrl.startsWith('acestream://')) {
-    aceHash = cleanUrl.replace('acestream://', '').split(/[?#|]/)[0].trim();
+  if (ch.aceHash && /^[a-f0-9]{40}$/i.test(ch.aceHash.trim())) {
+    aceHash = ch.aceHash.trim();
+  } else if (cleanUrl.startsWith('acestream://')) {
+    aceHash = cleanUrl.replace('acestream://', '').split(/[?#|&/]/)[0].trim();
   } else if (cleanUrl.includes('/stream/ace/')) {
     const match = cleanUrl.match(/\/stream\/ace\/([a-f0-9]{40})/i);
     if (match) aceHash = match[1];
@@ -155,15 +157,35 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
       playerInstance = null;
     }
 
-    const aceStreamPath = `/stream/ace/${aceHash}`;
+    const tokenParam = (window.appConfig && window.appConfig.authToken) ? `?token=${encodeURIComponent(window.appConfig.authToken)}` : '';
+    const aceStreamPath = `/stream/ace/${aceHash}.ts${tokenParam}`;
     const aceStreamUrl = new URL(aceStreamPath, window.location.origin).href;
-    const aceHlsUrl = new URL(`/stream/ace/${aceHash}/manifest.m3u8`, window.location.origin).href;
+    const aceHlsUrl = new URL(`/stream/ace/${aceHash}/manifest.m3u8${tokenParam}`, window.location.origin).href;
 
-    // A. Tentativo con mpegts.js (MPEG-TS live nativo tramite MSE)
+    let fallbackDone = false;
+    const triggerHlsFallback = () => {
+      if (fallbackDone) return;
+      fallbackDone = true;
+      console.log('[Player] Passaggio a fallback HLS AceStream:', aceHlsUrl);
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls({ maxBufferLength: 10, enableWorker: false });
+        hls.loadSource(aceHlsUrl);
+        hls.attachMedia(videoEl);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+        if (window.showToast) showToast('🔄 Passato a modalità HLS AceStream');
+        return hls;
+      } else {
+        videoEl.src = aceStreamUrl;
+        videoEl.play().catch(() => {});
+        return null;
+      }
+    };
+
+    // A. Tentativo con mpegts.js (MPEG-TS live nativo tramite MSE con tipo mpegts forzato)
     if (window.mpegts && mpegts.isSupported()) {
       try {
         const mpegPlayer = mpegts.createPlayer({
-          type: 'mse',
+          type: 'mpegts',
           isLive: true,
           url: aceStreamUrl
         }, {
@@ -171,14 +193,21 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
           lazyLoadMaxDuration: 3 * 60,
           seekType: 'range',
           liveBufferLatencyChasing: false,
-          liveBufferLatencyMaxLatency: 5,
-          liveBufferLatencyMinRemain: 1.5,
+          liveBufferLatencyMaxLatency: 6,
+          liveBufferLatencyMinRemain: 2,
           autoCleanupSourceBuffer: true
         });
-        mpegPlayer.on(mpegts.Events.ERROR, (t, d, i) => console.warn('[AceStream mpegts Error]', t, d, i));
+
+        mpegPlayer.on(mpegts.Events.ERROR, (t, d, i) => {
+          console.warn('[AceStream mpegts Error]', t, d, i);
+          triggerHlsFallback();
+        });
+
         mpegPlayer.attachMediaElement(videoEl);
         mpegPlayer.load();
-        mpegPlayer.play().catch(() => {});
+        mpegPlayer.play().catch(err => {
+          console.warn('[Player] Autoplay mpegts bloccato:', err);
+        });
         return mpegPlayer;
       } catch (e) {
         console.warn('[Player] mpegts.js non disponibile, passo a fallback Hls.js:', e);
@@ -186,18 +215,7 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
     }
 
     // B. Fallback con Hls.js su manifest HLS dell'engine
-    if (window.Hls && Hls.isSupported()) {
-      const hls = new Hls({ maxBufferLength: 10 });
-      hls.loadSource(aceHlsUrl);
-      hls.attachMedia(videoEl);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
-      return hls;
-    }
-
-    // C. Fallback tag standard HTML5
-    videoEl.src = aceStreamUrl;
-    videoEl.play().catch(() => {});
-    return null;
+    return triggerHlsFallback();
   }
 
   // Parse tutte le chiavi ClearKey (anche multiple separate da virgola)

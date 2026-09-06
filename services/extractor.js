@@ -631,18 +631,14 @@ class ExtractorEngine {
 
         if (linkVal && linkVal.startsWith('acestream://')) {
           const aceHash = linkVal.replace('acestream://', '').trim();
-          const aceHttpUrl = `http://127.0.0.1:6878/ace/getstream?id=${aceHash}`;
           this.channels.push({
             id: `ch_${Buffer.from(title + linkVal).toString('base64').substring(0, 16)}`,
             title,
-            url: aceHttpUrl,
+            url: `/stream/ace/${aceHash}.ts`,
             rawUrl: linkVal,
+            aceHash,
             logo: thumb,
             group,
-            kodi_props: {
-              'inputstream': 'inputstream.adaptive',
-              'inputstream.adaptive.manifest_type': 'hls'
-            },
             enabled: true,
             source: 'acestream'
           });
@@ -657,22 +653,26 @@ class ExtractorEngine {
             source: 'direct'
           });
         } else if (item.acelocal) {
-          const aceUrl = `http://127.0.0.1:6878/ace/getstream?id=${item.acelocal}`;
+          const aceHash = String(item.acelocal).trim();
           this.channels.push({
-            id: `ch_${Buffer.from(title + aceUrl).toString('base64').substring(0, 16)}`,
+            id: `ch_${Buffer.from(title + aceHash).toString('base64').substring(0, 16)}`,
             title: `[ACE] ${title}`,
-            url: aceUrl,
+            url: `/stream/ace/${aceHash}.ts`,
+            rawUrl: `acestream://${aceHash}`,
+            aceHash,
             logo: thumb,
             group: `${group} - AceStream`,
             enabled: true,
             source: 'acestream'
           });
         } else if (item.acehls) {
-          const aceUrl = `http://127.0.0.1:6878/ace/manifest.m3u8?id=${item.acehls}`;
+          const aceHash = String(item.acehls).trim();
           this.channels.push({
-            id: `ch_${Buffer.from(title + aceUrl).toString('base64').substring(0, 16)}`,
+            id: `ch_${Buffer.from(title + aceHash).toString('base64').substring(0, 16)}`,
             title: `[ACE-HLS] ${title}`,
-            url: aceUrl,
+            url: `/stream/ace/${aceHash}/manifest.m3u8`,
+            rawUrl: `acestream://${aceHash}`,
+            aceHash,
             logo: thumb,
             group: `${group} - AceStream`,
             enabled: true,

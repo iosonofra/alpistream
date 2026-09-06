@@ -82,6 +82,7 @@
     window.tvPlayer.init(el.video, state.serverUrl, (status, data) => {
       handlePlayerStatus(status, data);
     });
+    window.tvPlayer.setAuthToken(state.authToken);
 
     // Registra ascoltatori tasti telecomando & puntatore
     document.addEventListener('keydown', handleKeyDown);
@@ -729,6 +730,7 @@
         localStorage.setItem('mandrakodi_tv_mode', mode);
 
         window.tvPlayer.setServerBase(state.serverUrl);
+        window.tvPlayer.setAuthToken(state.authToken);
         updateServerBadge();
         closeSettingsModal();
         loadChannels();

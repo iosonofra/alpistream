@@ -1,6 +1,6 @@
 /**
  * iosonofratv - Hybrid Video Player Engine
- * Supporto per HLS (Hls.js & Native webOS), MPEG-TS Stream Copy (mpegts.js) e Auto-Recovery
+ * Supporto per HLS (Hls.js & Native webOS), AceStream (mpegts.js + HLS fallback), MPEG-TS Stream Copy e Auto-Recovery
  */
 
 class TvPlayer {
@@ -10,6 +10,7 @@ class TvPlayer {
     this.mpegInstance = null;
     this.currentChannel = null;
     this.serverBase = '';
+    this.authToken = '';
     this.onStatusChange = null;
     this.retryCount = 0;
     this.maxRetries = 2;
@@ -49,6 +50,14 @@ class TvPlayer {
     this.serverBase = (url || window.location.origin).replace(/\/$/, '');
   }
 
+  setAuthToken(token) {
+    this.authToken = (token || '').trim();
+  }
+
+  getAuthParam() {
+    return this.authToken ? `?token=${encodeURIComponent(this.authToken)}` : '';
+  }
+
   async stop() {
     if (this.hlsInstance) {
       try { this.hlsInstance.destroy(); } catch (e) {}
@@ -74,13 +83,43 @@ class TvPlayer {
     this.fallbackTriggered = false;
   }
 
+  extractAceHash(channel) {
+    if (!channel) return null;
+    if (channel.aceHash && /^[a-f0-9]{40}$/i.test(channel.aceHash.trim())) {
+      return channel.aceHash.trim();
+    }
+    const candidates = [channel.url, channel.rawUrl, channel.cleanUrl];
+    for (const u of candidates) {
+      if (!u || typeof u !== 'string') continue;
+      const str = u.trim();
+      if (str.startsWith('acestream://')) {
+        const h = str.replace('acestream://', '').split(/[?#|&/]/)[0].trim();
+        if (/^[a-f0-9]{40}$/i.test(h)) return h;
+      }
+      const matchId = str.match(/[?&]id=([a-f0-9]{40})/i);
+      if (matchId) return matchId[1];
+      const matchPath = str.match(/\/stream\/ace\/([a-f0-9]{40})/i);
+      if (matchPath) return matchPath[1];
+      if (/^[a-f0-9]{40}$/i.test(str)) return str;
+    }
+    return null;
+  }
+
   resolveUrl(channel) {
+    const aceHash = this.extractAceHash(channel);
+    const auth = this.getAuthParam();
+    if (aceHash) {
+      const isHls = channel.url && channel.url.includes('manifest.m3u8');
+      const streamPath = isHls ? `/stream/ace/${aceHash}/manifest.m3u8` : `/stream/ace/${aceHash}.ts`;
+      return `${this.serverBase}${streamPath}${auth ? (streamPath.includes('?') ? '&' + auth.slice(1) : auth) : ''}`;
+    }
+
     let url = (channel.url || '').trim();
     if (!url) return '';
 
     // Se l'URL è relativo (/stream/...), risolvilo rispetto all'indirizzo server iosonofratv
     if (url.startsWith('/')) {
-      return `${this.serverBase}${url}`;
+      return `${this.serverBase}${url}${auth ? (url.includes('?') ? '&' + auth.slice(1) : auth) : ''}`;
     }
     return url;
   }
@@ -99,12 +138,18 @@ class TvPlayer {
 
     this.onStatusChange('loading', { channel, url: streamUrl });
 
-    // 1. Riconoscimento stream AceStream o MPEG-TS Server Copy
+    // 1. Riconoscimento prioritario canali AceStream
+    const aceHash = this.extractAceHash(channel);
+    if (aceHash || channel.source === 'acestream' || streamUrl.includes('/stream/ace/')) {
+      this.playAceStream(aceHash, streamUrl, channel);
+      return;
+    }
+
+    // 2. Riconoscimento stream MPEG-TS Server Copy (FFmpeg MPD o ClearKey proxy)
     const isMpegTs = channel.streamMode === 'ffmpeg_copy' ||
       channel.mpdProxy === true ||
       (channel.id && channel.id.endsWith('_ffmpeg')) ||
       streamUrl.includes('/stream/mpd/') ||
-      streamUrl.includes('/stream/ace/') ||
       streamUrl.endsWith('.ts');
 
     if (isMpegTs) {
@@ -112,7 +157,7 @@ class TvPlayer {
       return;
     }
 
-    // 2. Riconoscimento stream HLS (HTSport, TVNow, m3u8 standard)
+    // 3. Riconoscimento stream HLS (HTSport, TVNow, m3u8 standard)
     const isHls = streamUrl.includes('.m3u8') ||
       streamUrl.includes('chunk.tvnow247.today') ||
       (channel.kodi_props && channel.kodi_props['inputstream.adaptive.manifest_type'] === 'hls');
@@ -122,8 +167,76 @@ class TvPlayer {
       return;
     }
 
-    // 3. Fallback Diretto HTML5
+    // 4. Fallback Diretto HTML5
     this.playNative(streamUrl);
+  }
+
+  playAceStream(aceHash, streamUrl, channel) {
+    console.log('[TvPlayer] Avvio riproduzione AceStream:', aceHash, streamUrl);
+
+    // Tentativo 1: mpegts.js con type: 'mpegts' forzato (MSE ad alte prestazioni)
+    if (window.mpegts && mpegts.isSupported()) {
+      try {
+        this.mpegInstance = mpegts.createPlayer({
+          type: 'mpegts',
+          isLive: true,
+          url: streamUrl
+        }, {
+          enableWorker: false, // Disabilitato per compatibilità con browser webOS
+          lazyLoadMaxDuration: 3 * 60,
+          seekType: 'range',
+          liveBufferLatencyChasing: false,
+          liveBufferLatencyMaxLatency: 6,
+          liveBufferLatencyMinRemain: 2,
+          autoCleanupSourceBuffer: true
+        });
+
+        this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
+          console.warn('[TvPlayer] Errore mpegts.js AceStream:', type, detail, info);
+          this.fallbackAceToHls(aceHash);
+        });
+
+        if (mpegts.Events.MEDIA_INFO) {
+          this.mpegInstance.on(mpegts.Events.MEDIA_INFO, () => {
+            this.markPlaying();
+          });
+        }
+
+        this.mpegInstance.attachMediaElement(this.video);
+        this.mpegInstance.load();
+        this.mpegInstance.play().catch(err => {
+          console.warn('[TvPlayer] Autoplay AceStream bloccato:', err);
+        });
+        return;
+      } catch (e) {
+        console.warn('[TvPlayer] Fallito avvio mpegts.js per AceStream, passo a HLS:', e);
+      }
+    }
+
+    // Tentativo 2: Fallback HLS AceStream tramite Hls.js
+    this.fallbackAceToHls(aceHash);
+  }
+
+  fallbackAceToHls(aceHash) {
+    if (this.fallbackTriggered) return;
+    this.fallbackTriggered = true;
+
+    const auth = this.getAuthParam();
+    const hlsUrl = `${this.serverBase}/stream/ace/${aceHash || ''}/manifest.m3u8${auth}`;
+    console.log('[TvPlayer] Passaggio a fallback AceStream HLS:', hlsUrl);
+    this.onStatusChange('loading', { channel: this.currentChannel, fallback: true });
+
+    if (this.mpegInstance) {
+      try {
+        this.mpegInstance.pause();
+        this.mpegInstance.unload();
+        this.mpegInstance.detachMediaElement();
+        this.mpegInstance.destroy();
+      } catch (e) {}
+      this.mpegInstance = null;
+    }
+
+    this.playHls(hlsUrl);
   }
 
   playMpegTs(url) {
@@ -133,7 +246,7 @@ class TvPlayer {
     if (window.mpegts && mpegts.isSupported()) {
       try {
         this.mpegInstance = mpegts.createPlayer({
-          type: 'mse',
+          type: 'mpegts',
           isLive: true,
           url: url
         }, {
@@ -236,14 +349,20 @@ class TvPlayer {
   }
 
   handlePlaybackError(msg) {
-    // Se il canale ha una variante o supporto MPD server-side e non l'abbiamo ancora provato
     if (!this.fallbackTriggered && this.currentChannel) {
-      this.fallbackTriggered = true;
       const ch = this.currentChannel;
+      const aceHash = this.extractAceHash(ch);
+      if (aceHash) {
+        this.fallbackAceToHls(aceHash);
+        return;
+      }
+
+      this.fallbackTriggered = true;
       const hasClearKey = ch.clearkey && !['0000', '0:0', '0'].includes(String(ch.clearkey).trim());
 
       if (hasClearKey || (ch.id && !ch.id.endsWith('_ffmpeg'))) {
-        const fallbackUrl = `${this.serverBase}/stream/mpd/${ch.id}.ts`;
+        const auth = this.getAuthParam();
+        const fallbackUrl = `${this.serverBase}/stream/mpd/${ch.id}.ts${auth}`;
         console.log('[TvPlayer] Auto-Fallback attivo verso FFmpeg Stream Copy centralizzato:', fallbackUrl);
         this.onStatusChange('loading', { channel: ch, fallback: true });
         this.playMpegTs(fallbackUrl);
