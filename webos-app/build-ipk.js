@@ -81,10 +81,10 @@ function buildIpk() {
   }
 
   const appInfo = JSON.parse(fs.readFileSync(appInfoPath, 'utf8'));
-  const appId = appInfo.id || 'com.mandrakodi.tv';
+  const appId = appInfo.id || 'com.iosonofra.tv';
   const appVer = appInfo.version || '1.0.0';
 
-  console.log(`[MandraKodi TV] Avvio creazione pacchetto IPK per ${appId} (v${appVer})...`);
+  console.log(`[iosonofratv] Avvio creazione pacchetto IPK per ${appId} (v${appVer})...`);
 
   // 1. debian-binary
   const debianBinary = Buffer.from('2.0\n', 'ascii');
@@ -96,8 +96,8 @@ function buildIpk() {
     'Section: misc',
     'Priority: optional',
     'Architecture: all',
-    'Maintainer: MandraKodi',
-    'Description: MandraKodi TV Client for LG webOS Smart TV',
+    'Maintainer: iosonofra',
+    'Description: iosonofratv Client for LG webOS Smart TV',
     ''
   ].join('\n');
 

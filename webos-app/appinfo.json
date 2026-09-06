@@ -1,10 +1,10 @@
 {
-  "id": "com.mandrakodi.tv",
+  "id": "com.iosonofra.tv",
   "version": "1.0.0",
-  "vendor": "MandraKodi",
+  "vendor": "iosonofratv",
   "type": "web",
   "main": "index.html",
-  "title": "MandraKodi TV",
+  "title": "iosonofratv",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "bgImage": "background.png",

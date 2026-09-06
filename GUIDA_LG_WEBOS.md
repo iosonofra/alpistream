@@ -1,6 +1,6 @@
-# 📺 Guida Installazione MandraKodi TV su Smart TV LG webOS
+# 📺 Guida Installazione iosonofratv su Smart TV LG webOS
 
-Questa guida ti spiega passo-passo come installare il player **MandraKodi TV** (`.ipk`) sulla tua Smart TV LG con sistema operativo webOS, utilizzando il comodo tool grafico gratuito per PC **webOS Dev Manager**.
+Questa guida ti spiega passo-passo come installare il player **iosonofratv** (`.ipk`) sulla tua Smart TV LG con sistema operativo webOS, utilizzando il comodo tool grafico gratuito per PC **webOS Dev Manager**.
 
 ---
 
@@ -8,7 +8,7 @@ Questa guida ti spiega passo-passo come installare il player **MandraKodi TV** (
 
 Il pacchetto pronto per l'installazione si trova in:
 ```
-webos-app/com.mandrakodi.tv_1.0.0_all.ipk
+webos-app/com.iosonofra.tv_1.0.0_all.ipk
 ```
 *(Se desideri ricompilarlo in futuro con modifiche, basta lanciare `node webos-app/build-ipk.js`)*.
 
@@ -52,14 +52,14 @@ webos-app/com.mandrakodi.tv_1.0.0_all.ipk
 
 ---
 
-### 4. Installa l'App MandraKodi TV
+### 4. Installa l'App iosonofratv
 1. In alto a destra su webOS Dev Manager clicca sul pulsante **Install...** (oppure trascina semplicemente il file con il mouse).
 2. Seleziona il file:
    ```
-   web-app/webos-app/com.mandrakodi.tv_1.0.0_all.ipk
+   web-app/webos-app/com.iosonofra.tv_1.0.0_all.ipk
    ```
 3. L'installazione impiega meno di 3 secondi.
-4. **Fatto!** Sulla TV apparirà la notifica *"Applicazione MandraKodi TV installata"*, e troverai l'icona nella barra principale della Home di LG webOS!
+4. **Fatto!** Sulla TV apparirà la notifica *"Applicazione iosonofratv installata"*, e troverai l'icona nella barra principale della Home di LG webOS!
 
 ---
 
@@ -73,7 +73,7 @@ webos-app/com.mandrakodi.tv_1.0.0_all.ipk
 | **BACK (Ritorna)** | Chiude la lista canali e passa a schermo intero; se già a schermo intero, chiude l'app |
 | **CH+ / CH- (P+ / P-)** | Zapping rapido istantaneo canale successivo / precedente |
 | **Tasti 0 - 9** | Selezione canale diretta per numero (es. digita `1` `0` `5` per andare al canale 105) |
-| **Tasto BLU (■)** | Apre le Impostazioni su TV per cambiare indirizzo server MandraKodi |
+| **Tasto BLU (■)** | Apre le Impostazioni su TV per cambiare indirizzo server streaming |
 | **Puntatore Magic Remote** | Puoi anche puntare e cliccare direttamente con il puntatore laser LG |
 
 ---

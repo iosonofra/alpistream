@@ -12,9 +12,9 @@
     : 'https://alpistream.iosonofra.click';
 
   const state = {
-    serverUrl: localStorage.getItem('mandrakodi_tv_server') || DEFAULT_SERVER,
-    authToken: localStorage.getItem('mandrakodi_tv_token') || '',
-    playerMode: localStorage.getItem('mandrakodi_tv_mode') || 'auto',
+    serverUrl: localStorage.getItem('iosonofratv_server') || localStorage.getItem('mandrakodi_tv_server') || DEFAULT_SERVER,
+    authToken: localStorage.getItem('iosonofratv_token') || localStorage.getItem('mandrakodi_tv_token') || '',
+    playerMode: localStorage.getItem('iosonofratv_mode') || localStorage.getItem('mandrakodi_tv_mode') || 'auto',
     channels: [],
     groups: [],
     currentGroup: 'ALL',
@@ -658,11 +658,14 @@
 
         if (url) {
           state.serverUrl = url;
+          localStorage.setItem('iosonofratv_server', url);
           localStorage.setItem('mandrakodi_tv_server', url);
         }
         state.authToken = token;
+        localStorage.setItem('iosonofratv_token', token);
         localStorage.setItem('mandrakodi_tv_token', token);
         state.playerMode = mode;
+        localStorage.setItem('iosonofratv_mode', mode);
         localStorage.setItem('mandrakodi_tv_mode', mode);
 
         window.tvPlayer.setServerBase(state.serverUrl);
