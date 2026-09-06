@@ -1,21 +1,41 @@
 /* ==========================================================================
-   iosonofratv - 10-Foot UI Stylesheet (TiviMate & OTT Navigator Style)
+   iosonofratv - 10-Foot UI Stylesheet (SKY TV / Sky Glass Edition)
    Ottimizzato per Smart TV LG webOS, risoluzione 1080p/4K e navigazione D-Pad ultra-fluida
    ========================================================================== */
 
 :root {
-  --bg-dark: #07090e;
-  --bg-glass: rgba(10, 14, 22, 0.96);
-  --bg-glass-card: #131926;
-  --bg-glass-active: #1e2738;
-  --accent-cyan: #00e5ff;
-  --accent-blue: #0070f3;
-  --accent-purple: #7928ca;
+  /* Palette Sky TV / Sky Glass */
+  --sky-bg: #030611;
+  --sky-bg-gradient: radial-gradient(circle at 15% 15%, rgba(14, 30, 64, 0.95) 0%, rgba(4, 9, 22, 0.98) 60%, rgba(2, 4, 10, 0.99) 100%);
+  
+  /* Sky Glass Card Surfaces */
+  --sky-glass-surface: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(11, 20, 38, 0.72);
+  --sky-glass-active: linear-gradient(135deg, rgba(0, 178, 254, 0.22) 0%, rgba(0, 71, 187, 0.25) 100%), rgba(12, 24, 48, 0.85);
+  
+  /* Sky Signature Accents */
+  --sky-cyan: #00f0ff;
+  --sky-azure: #00b2fe;
+  --sky-royal-blue: #0055ff;
+  --sky-magenta: #ff007a;
+  --sky-purple: #7928ca;
+  --sky-gold: #ffb703;
+  
+  /* Sky Spectrum Multi-Gradient */
+  --sky-spectrum: linear-gradient(90deg, #ff007a 0%, #7928ca 32%, #0055ff 68%, #00f0ff 100%);
+  --sky-glow-cyan: 0 0 25px rgba(0, 240, 255, 0.45);
+  --sky-glow-focus: 0 0 28px rgba(0, 178, 254, 0.5), 0 0 0 3px #00b2fe;
+  
+  /* Glass Borders & Refraction Highlights */
+  --glass-border: 1px solid rgba(255, 255, 255, 0.12);
+  --glass-border-focus: 2px solid #00f0ff;
+  --glass-specular: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --glass-specular-focus: inset 0 1px 1px rgba(255, 255, 255, 0.5);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  
+  /* Typography */
   --text-primary: #ffffff;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --focus-glow: 0 0 10px rgba(0, 229, 255, 0.6);
+  --text-secondary: #9cb2cd;
+  --text-muted: #5e779b;
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -54,6 +74,7 @@ body.tv-body {
   object-fit: contain;
 }
 
+/* Spinner Caricamento Flusso */
 .video-spinner {
   position: absolute;
   top: 50%;
@@ -62,13 +83,15 @@ body.tv-body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  background: rgba(10, 14, 22, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 24px 36px;
-  border-radius: 16px;
+  gap: 18px;
+  background: linear-gradient(135deg, rgba(14, 26, 50, 0.94) 0%, rgba(4, 8, 18, 0.97) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 26px 40px;
+  border-radius: 20px;
   z-index: 5;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
@@ -81,19 +104,27 @@ body.tv-body {
 }
 
 .spinner-ring {
-  width: 48px;
-  height: 48px;
-  border: 4px solid rgba(255, 255, 255, 0.15);
-  border-top-color: var(--accent-cyan);
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--sky-cyan);
   border-radius: 50%;
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.35);
   animation: spin 0.8s linear infinite;
+}
+
+#spinner-text {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-/* 2. Overlay Principale di Navigazione */
+/* 2. Overlay Principale di Navigazione (Sky Glass Layout) */
 .tv-overlay {
   position: absolute;
   top: 0;
@@ -101,10 +132,12 @@ body.tv-body {
   width: 100%;
   height: 100%;
   z-index: 10;
-  background: rgba(8, 11, 18, 0.96);
+  background: var(--sky-bg-gradient);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
-  padding: 24px 40px;
+  padding: 24px 44px;
   opacity: 1;
 }
 
@@ -117,41 +150,58 @@ body.tv-body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 60px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 12px;
+  height: 64px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 14px;
+  position: relative;
   flex-shrink: 0;
+}
+
+.tv-header::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 240px;
+  height: 2px;
+  background: var(--sky-spectrum);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.7);
 }
 
 .header-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .brand-logo-icon {
-  width: 40px;
-  height: 40px;
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
-  color: #000;
+  width: 42px;
+  height: 42px;
+  background: var(--sky-spectrum);
+  color: #fff;
   font-weight: 900;
   font-size: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  box-shadow: 0 4px 15px rgba(0, 229, 255, 0.4);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 178, 254, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
 .brand-title {
   font-size: 26px;
   font-weight: 800;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
 .brand-highlight {
-  color: var(--accent-cyan);
+  background: var(--sky-spectrum);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 900;
 }
 
 .header-status {
@@ -165,30 +215,35 @@ body.tv-body {
   font-weight: 700;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
 }
 
 .channel-counter {
   font-size: 16px;
   color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .badge {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.6px;
 }
 
 .badge-server {
-  background: rgba(0, 229, 255, 0.15);
-  color: var(--accent-cyan);
-  border: 1px solid rgba(0, 229, 255, 0.4);
+  background: rgba(0, 178, 254, 0.14);
+  color: var(--sky-cyan);
+  border: 1px solid rgba(0, 178, 254, 0.45);
+  box-shadow: 0 0 14px rgba(0, 178, 254, 0.25);
 }
 
 .badge-codec {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
   color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 /* Layout Principale a Colonne */
@@ -220,13 +275,13 @@ body.tv-body {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-muted);
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
 }
 
 .group-count {
   font-size: 15px;
-  color: var(--accent-cyan);
-  font-weight: 600;
+  color: var(--sky-azure);
+  font-weight: 700;
 }
 
 /* Colonna 1: Categorie */
@@ -242,6 +297,7 @@ body.tv-body {
 .groups-list {
   flex: 1;
   min-height: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -255,39 +311,58 @@ body.tv-body {
 }
 
 .group-item {
-  padding: 16px 22px;
-  border-radius: 14px;
-  background: var(--bg-glass-card);
+  padding: 16px 24px;
+  border-radius: 16px;
+  background: var(--sky-glass-surface);
+  border: var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-specular);
   color: var(--text-secondary);
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 700;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border: 1px solid transparent;
   cursor: pointer;
   flex-shrink: 0;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .group-item .item-count {
-  font-size: 15px;
-  font-weight: 700;
-  background: rgba(255, 255, 255, 0.12);
+  font-size: 14px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .group-item.active {
-  background: rgba(0, 229, 255, 0.18);
+  background: var(--sky-glass-active);
   color: #fff;
-  border-color: rgba(0, 229, 255, 0.5);
+  border-color: rgba(0, 178, 254, 0.5);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(0, 240, 255, 0.3);
+}
+
+.group-item.active .item-count {
+  background: rgba(0, 178, 254, 0.25);
+  color: var(--sky-cyan);
+  border-color: rgba(0, 178, 254, 0.4);
 }
 
 .group-item.focused {
-  background: #1b263b;
-  outline: 4px solid var(--accent-cyan);
-  outline-offset: -2px;
+  background: linear-gradient(135deg, rgba(0, 178, 254, 0.3) 0%, rgba(10, 24, 52, 0.95) 100%);
+  border: var(--glass-border-focus);
+  box-shadow: var(--sky-glow-focus), var(--glass-specular-focus);
   color: #fff;
+  transform: scale(1.02);
+  z-index: 2;
+}
+
+.group-item.focused .item-count {
+  background: var(--sky-cyan);
+  color: #030712;
+  font-weight: 900;
 }
 
 /* Colonna 2: Canali con EPG */
@@ -304,6 +379,7 @@ body.tv-body {
 .channels-list {
   flex: 1;
   min-height: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -321,36 +397,51 @@ body.tv-body {
   align-items: center;
   gap: 20px;
   padding: 16px 24px;
-  border-radius: 16px;
-  background: var(--bg-glass-card);
-  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--sky-glass-surface);
+  border: var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-specular);
   cursor: pointer;
   position: relative;
   min-height: 84px;
   flex-shrink: 0;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .channel-item.active-playing {
-  border-left: 6px solid var(--accent-cyan);
-  background: rgba(0, 229, 255, 0.14);
+  background: var(--sky-glass-active);
+  border-color: rgba(0, 178, 254, 0.4);
+}
+
+.channel-item.active-playing::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 5px;
+  border-radius: 0 4px 4px 0;
+  background: var(--sky-spectrum);
+  box-shadow: 0 0 12px var(--sky-cyan);
 }
 
 .channel-item.focused {
-  background: #1e293b;
-  outline: 4px solid var(--accent-cyan);
-  outline-offset: -2px;
+  background: linear-gradient(135deg, rgba(0, 178, 254, 0.28) 0%, rgba(12, 26, 54, 0.96) 100%);
+  border: var(--glass-border-focus);
+  box-shadow: var(--sky-glow-focus), var(--glass-specular-focus);
+  transform: scale(1.015);
   z-index: 2;
-  box-shadow: 0 4px 24px rgba(0, 229, 255, 0.28);
 }
 
 .channel-num {
   font-size: 24px;
   font-weight: 900;
-  color: var(--accent-cyan);
+  color: var(--sky-cyan);
   width: 55px;
   min-width: 55px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px rgba(0, 240, 255, 0.4);
 }
 
 .channel-logo-wrapper {
@@ -360,9 +451,11 @@ body.tv-body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 10px;
-  padding: 4px;
+  background: rgba(4, 9, 20, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 5px;
   flex-shrink: 0;
 }
 
@@ -370,6 +463,7 @@ body.tv-body {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
 }
 
 .channel-text-info {
@@ -393,7 +487,12 @@ body.tv-body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
+}
+
+.channel-item.focused .channel-name {
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
 }
 
 .channel-epg-info {
@@ -403,24 +502,29 @@ body.tv-body {
 }
 
 .epg-now-text {
-  font-size: 17px;
+  font-size: 16px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.channel-item.focused .epg-now-text {
+  color: #e0edff;
+}
+
 .epg-mini-bar {
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.12);
+  height: 5px;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .epg-mini-bar-fill {
   height: 100%;
-  background: var(--accent-cyan);
+  background: linear-gradient(90deg, var(--sky-royal-blue), var(--sky-cyan));
+  box-shadow: 0 0 8px var(--sky-cyan);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -432,7 +536,7 @@ body.tv-body {
   gap: 24px;
   padding-top: 14px;
   margin-top: 10px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 14px;
   color: var(--text-muted);
   flex-shrink: 0;
@@ -441,23 +545,27 @@ body.tv-body {
 .hint-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .key-badge {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
   color: #fff;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .key-badge.color-blue {
-  background: var(--accent-blue);
+  background: var(--sky-royal-blue);
+  box-shadow: 0 0 10px rgba(0, 85, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
-/* 3. OSD Inferiore a Scomparsa (Player Overlay) */
+/* 3. OSD Inferiore a Scomparsa (Floating Sky Glass Banner) */
 .tv-bottom-osd {
   position: absolute;
   bottom: 30px;
@@ -465,13 +573,15 @@ body.tv-body {
   transform: translateX(-50%);
   width: calc(100% - 80px);
   max-width: 1280px;
-  background: rgba(10, 14, 22, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
-  border-radius: 20px;
-  padding: 20px 28px;
+  background: linear-gradient(135deg, rgba(14, 26, 50, 0.94) 0%, rgba(4, 8, 18, 0.97) 100%);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  border-radius: 22px;
+  padding: 22px 32px;
   z-index: 20;
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   opacity: 1;
 }
 
@@ -484,49 +594,54 @@ body.tv-body {
 .osd-content {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 26px;
 }
 
 .osd-logo-box {
-  width: 90px;
-  height: 65px;
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 12px;
+  width: 96px;
+  height: 70px;
+  background: rgba(4, 8, 18, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 6px;
   flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .osd-logo {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
 }
 
 .osd-info-box {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .osd-channel-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .osd-ch-no {
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--accent-cyan);
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--sky-cyan);
+  text-shadow: 0 0 14px rgba(0, 240, 255, 0.4);
 }
 
 .osd-title {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 800;
+  letter-spacing: 0.4px;
 }
 
 .osd-epg-now {
@@ -547,15 +662,16 @@ body.tv-body {
 .osd-progress-container {
   width: 100%;
   height: 6px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 3px;
   overflow: hidden;
-  margin: 2px 0;
+  margin: 3px 0;
 }
 
 .osd-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-cyan), #00a2ff);
+  background: var(--sky-spectrum);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
   border-radius: 3px;
   transition: width 0.5s ease;
 }
@@ -576,16 +692,18 @@ body.tv-body {
   position: absolute;
   top: 35px;
   right: 45px;
-  background: rgba(0, 0, 0, 0.85);
-  border: 2px solid var(--accent-cyan);
-  box-shadow: var(--focus-glow);
-  padding: 14px 28px;
-  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(14, 26, 50, 0.94) 0%, rgba(4, 8, 18, 0.97) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 2px solid var(--sky-cyan);
+  box-shadow: var(--sky-glow-cyan);
+  padding: 16px 30px;
+  border-radius: 18px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   z-index: 30;
-  animation: popIn 0.2s ease;
+  animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .number-jump-osd.hidden {
@@ -594,24 +712,32 @@ body.tv-body {
 
 .jump-label {
   font-size: 18px;
+  font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .jump-digits {
-  font-size: 38px;
+  font-size: 40px;
   font-weight: 900;
-  color: var(--accent-cyan);
+  color: var(--sky-cyan);
+  text-shadow: 0 0 15px rgba(0, 240, 255, 0.6);
 }
 
-/* 5. Modal Impostazioni */
+@keyframes popIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* 5. Modal Impostazioni (Sky Glass Modal) */
 .tv-modal {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.88);
+  background: rgba(2, 4, 10, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -623,23 +749,26 @@ body.tv-body {
 }
 
 .modal-card {
-  width: 620px;
-  background: var(--bg-glass);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
-  border-radius: 20px;
-  padding: 28px 36px;
+  width: 640px;
+  background: linear-gradient(135deg, rgba(14, 26, 52, 0.96) 0%, rgba(4, 8, 18, 0.98) 100%);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  border-radius: 24px;
+  padding: 32px 40px;
 }
 
 .modal-header h3 {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 800;
-  margin-bottom: 20px;
-  color: var(--accent-cyan);
+  margin-bottom: 24px;
+  color: var(--sky-cyan);
+  letter-spacing: 0.5px;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .form-group label {
@@ -647,23 +776,24 @@ body.tv-body {
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 8px;
+  color: var(--text-primary);
 }
 
 .tv-input, .tv-select {
   width: 100%;
   padding: 14px 18px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(0, 0, 0, 0.6);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(3, 7, 18, 0.7);
   color: #fff;
   font-size: 17px;
   outline: none;
-  transition: border 0.15s ease;
+  transition: border 0.15s ease, box-shadow 0.15s ease;
 }
 
 .tv-input.focused, .tv-select.focused {
-  border: 2px solid var(--accent-cyan);
-  box-shadow: var(--focus-glow);
+  border: 2px solid var(--sky-cyan);
+  box-shadow: var(--sky-glow-focus);
 }
 
 .field-hint {
@@ -676,34 +806,37 @@ body.tv-body {
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 14px;
-  margin-top: 24px;
+  gap: 16px;
+  margin-top: 28px;
 }
 
 .tv-btn {
-  padding: 12px 24px;
-  border-radius: 10px;
+  padding: 13px 26px;
+  border-radius: 12px;
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   border: none;
   outline: none;
-  transition: transform 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .tv-btn.focused {
-  box-shadow: var(--focus-glow);
+  box-shadow: var(--sky-glow-focus);
   transform: scale(1.05);
 }
 
 .tv-btn-primary {
-  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
-  color: #000;
+  background: var(--sky-spectrum);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 4px 16px rgba(0, 178, 254, 0.4);
 }
 
 .tv-btn-secondary {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 /* 6. Toast */
@@ -712,10 +845,12 @@ body.tv-body {
   bottom: 40px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid var(--accent-cyan);
-  box-shadow: var(--focus-glow);
-  padding: 14px 30px;
+  background: linear-gradient(135deg, rgba(14, 26, 50, 0.96) 0%, rgba(4, 8, 18, 0.98) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--sky-azure);
+  box-shadow: var(--sky-glow-focus);
+  padding: 16px 34px;
   border-radius: 30px;
   font-size: 18px;
   font-weight: 700;
