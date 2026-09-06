@@ -1137,47 +1137,88 @@ function trimSegmentTimelineInManifest(manifest, keepCount = 5) {
       return tplMatch;
     }
 
-    const sTagMatch = tplMatch.match(/<S\b[^>]*\br="(\d+)"[^>]*>/i);
     const startNumMatch = tplMatch.match(/\bstartNumber="(\d+)"/i);
-    let skipped = 0;
+    let totalSkipped = 0;
 
     let updatedTpl = tplMatch.replace(/<SegmentTimeline>([\s\S]*?)<\/SegmentTimeline>/gi, (tlMatch, tlContent) => {
       const allSTags = tlContent.match(/<S\b[\s\S]*?(?:\/>|<\/S>)/gi) || [];
+      if (allSTags.length === 0) return tlMatch;
 
-      if (allSTags.length === 1) {
-        const sTag = allSTags[0];
+      let currentTime = 0n;
+      const entries = [];
+
+      for (const sTag of allSTags) {
         const tMatch = sTag.match(/\bt="(\d+)"/i);
         const dMatch = sTag.match(/\bd="(\d+)"/i);
-        const rMatch = sTag.match(/\br="(\d+)"/i);
+        const rMatch = sTag.match(/\br="(-?\d+)"/i);
 
-        if (dMatch && rMatch) {
-          const r = parseInt(rMatch[1], 10);
-          if (r > keepCount) {
-            const d = BigInt(dMatch[1]);
-            skipped = r - keepCount;
-            const newR = keepCount;
-
-            let newTag = sTag.replace(/\br="\d+"/i, `r="${newR}"`);
-            if (tMatch) {
-              const t = BigInt(tMatch[1]);
-              const newT = t + (BigInt(skipped) * d);
-              newTag = newTag.replace(/\bt="\d+"/i, `t="${newT.toString()}"`);
-            }
-
-            return `<SegmentTimeline>\n          ${newTag}\n        </SegmentTimeline>`;
-          }
+        if (!dMatch) continue;
+        const d = BigInt(dMatch[1]);
+        if (tMatch) {
+          currentTime = BigInt(tMatch[1]);
         }
-      } else if (allSTags.length > keepCount) {
-        const kept = allSTags.slice(allSTags.length - keepCount);
-        return `<SegmentTimeline>\n          ${kept.join('\n          ')}\n        </SegmentTimeline>`;
+        const rRaw = rMatch ? parseInt(rMatch[1], 10) : 0;
+        const r = rRaw >= 0 ? rRaw : 0;
+        const count = r + 1;
+        const startT = currentTime;
+        const endT = startT + BigInt(count) * d;
+        currentTime = endT;
+
+        entries.push({
+          sTag,
+          startT,
+          endT,
+          d,
+          r,
+          count
+        });
       }
 
-      return tlMatch;
+      const totalSegments = entries.reduce((sum, e) => sum + e.count, 0);
+      const targetKeptSegments = keepCount + 1;
+      if (totalSegments <= targetKeptSegments) {
+        return tlMatch;
+      }
+
+      const segmentsToSkip = totalSegments - targetKeptSegments;
+      totalSkipped = Math.max(totalSkipped, segmentsToSkip);
+
+      let skippedSoFar = 0;
+      const keptTags = [];
+      let isFirstKept = true;
+
+      for (const entry of entries) {
+        if (skippedSoFar + entry.count <= segmentsToSkip) {
+          skippedSoFar += entry.count;
+          continue;
+        }
+
+        if (isFirstKept) {
+          const skipInThisEntry = segmentsToSkip - skippedSoFar;
+          const remainingInThisEntry = entry.count - skipInThisEntry;
+          const newStartT = entry.startT + BigInt(skipInThisEntry) * entry.d;
+          const newR = remainingInThisEntry - 1;
+
+          let tagStr = `<S t="${newStartT.toString()}" d="${entry.d.toString()}"`;
+          if (newR > 0) {
+            tagStr += ` r="${newR}"`;
+          }
+          tagStr += `/>`;
+          keptTags.push(tagStr);
+
+          skippedSoFar = segmentsToSkip;
+          isFirstKept = false;
+        } else {
+          keptTags.push(entry.sTag.trim());
+        }
+      }
+
+      return `<SegmentTimeline>\n          ${keptTags.join('\n          ')}\n        </SegmentTimeline>`;
     });
 
-    if (skipped > 0 && startNumMatch) {
+    if (totalSkipped > 0 && startNumMatch) {
       const startNum = parseInt(startNumMatch[1], 10);
-      const newStartNum = startNum + skipped;
+      const newStartNum = startNum + totalSkipped;
       updatedTpl = updatedTpl.replace(`startNumber="${startNum}"`, `startNumber="${newStartNum}"`);
     }
 
@@ -1248,10 +1289,10 @@ function cleanAndBufferMpd(manifest, targetUrl, sessionId, port) {
     const openingTag = openingTagMatch ? openingTagMatch[0] : '<AdaptationSet>';
     const content = match.replace(/<AdaptationSet\b[^>]*>/i, '').replace(/<\/AdaptationSet>/i, '');
 
-    const reps = content.match(/<Representation[\s\S]*?<\/Representation>/gi) || [];
+    const reps = content.match(/<Representation[\s\S]*?(?:<\/Representation>|\/>)/gi) || [];
     if (reps.length > 1) {
       const bestRep = getBestVideoRepresentation(reps);
-      const withoutReps = content.replace(/<Representation[\s\S]*?<\/Representation>/gi, '');
+      const withoutReps = content.replace(/<Representation[\s\S]*?(?:<\/Representation>|\/>)/gi, '');
       return `${openingTag}${withoutReps}\n      ${bestRep}\n    </AdaptationSet>`;
     }
     return match;

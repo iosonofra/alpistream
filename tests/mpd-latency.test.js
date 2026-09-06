@@ -50,6 +50,33 @@ test('trimSegmentTimelineInManifest handles $Time$ templates without startNumber
   assert.match(result, /t="85857668549760"/);
 });
 
+test('trimSegmentTimelineInManifest correctly trims multi-tag timelines (e.g. DAZN/Sky) without dropping base timestamp', () => {
+  const sample = `<MPD type="dynamic" availabilityStartTime="1970-01-01T00:00:00Z">
+    <SegmentTemplate timescale="600" media="avc_dash_global-$RepresentationID$-$Time$.dash" initialization="avc_dash_global-$RepresentationID$.dash">
+      <SegmentTimeline>
+        <S t="1073229780000" d="1200" r="10" />
+        <S d="1200" r="5" />
+        <S d="1200" r="4" />
+      </SegmentTimeline>
+    </SegmentTemplate>
+  </MPD>`;
+
+  // Total segments: 11 + 6 + 5 = 22. Target keep: 5 (5 + 1 = 6 kept).
+  // Segments to skip: 16.
+  // First tag has 11 segments (skips all 11).
+  // Second tag has 6 segments: skips 5 (16 - 11), remaining 1.
+  // Start timestamp of second tag: 1073229780000 + (11 * 1200) = 1073229793200.
+  // Kept portion of second tag starts at: 1073229793200 + (5 * 1200) = 1073229799200.
+  // Third tag has 5 segments (all kept).
+  const result = trimSegmentTimelineInManifest(sample, 5);
+
+  assert.match(result, /suggestedPresentationDelay="PT8S"/);
+  assert.match(result, /<S t="1073229799200" d="1200"\s*\/>/);
+  assert.match(result, /<S d="1200" r="4"\s*\/>/);
+  // The first tag should not be present
+  assert.doesNotMatch(result, /t="1073229780000"/);
+});
+
 test('generateM3U emits inputstream.adaptive.live_delay=10 for MPD streams in Kodi', () => {
   const engine = new ExtractorEngine();
   const channels = [
