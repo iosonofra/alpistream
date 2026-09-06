@@ -350,8 +350,7 @@ class TvPlayer {
           enableWorker: false, // Disabilitato per compatibilità con browser webOS
           lazyLoad: false, // Disabilitato per streaming live continuo (evita caduta socket e buffer gap)
           lazyLoadMaxDuration: 0,
-          seekType: 'param', // Stream live continuo senza Range headers
-          liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
+                    liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60, // Limita memoria occupata sulla TV
           autoCleanupMinBackwardDuration: 15, // Preserva i keyframe recenti
@@ -369,6 +368,9 @@ class TvPlayer {
 
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
+        if (this.mpegInstance._transmuxer) {
+          this.mpegInstance._transmuxer.seek = () => {};
+        }
         this.mpegInstance.play().catch(err => {
           console.warn('[TvPlayer] Autoplay AceStream bloccato:', err);
         });
@@ -417,8 +419,7 @@ class TvPlayer {
           enableWorker: false, // Disabilitato per compatibilità con browser webOS più vecchi
           lazyLoad: false, // Disabilitato per streaming live continuo (evita caduta socket e buffer gap)
           lazyLoadMaxDuration: 0,
-          seekType: 'param', // Stream live continuo senza Range headers
-          liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
+                    liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60, // Limita memoria occupata sulla TV
           autoCleanupMinBackwardDuration: 15, // Preserva i keyframe recenti
@@ -436,6 +437,9 @@ class TvPlayer {
 
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
+        if (this.mpegInstance._transmuxer) {
+          this.mpegInstance._transmuxer.seek = () => {};
+        }
         this.mpegInstance.play().catch(err => {
           console.warn('[TvPlayer] Autoplay mpegts bloccato:', err);
         });
