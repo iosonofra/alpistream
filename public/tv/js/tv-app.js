@@ -37,6 +37,7 @@
   let currentFocusedGroupEl = null;
   let bufferingDebounceTimer = null;
   let loadingWatchdogTimer = null;
+  let lastKeyNavTimestamp = 0;
 
   // Elementi DOM
   const el = {
@@ -546,27 +547,21 @@
     }
 
     // Navigazione D-Pad nell'Overlay Visibile
-    switch (keyCode) {
-      case 38: // ArrowUp
-        moveFocusVertical(-1);
-        e.preventDefault();
-        break;
-      case 40: // ArrowDown
-        moveFocusVertical(1);
-        e.preventDefault();
-        break;
-      case 37: // ArrowLeft
-        moveFocusHorizontal(-1);
-        e.preventDefault();
-        break;
-      case 39: // ArrowRight
-        moveFocusHorizontal(1);
-        e.preventDefault();
-        break;
-      case 13: // Enter / OK
-        handleOkPress();
-        e.preventDefault();
-        break;
+    if (keyCode === 38 || key === 'ArrowUp' || key === 'Up') {
+      moveFocusVertical(-1);
+      e.preventDefault();
+    } else if (keyCode === 40 || key === 'ArrowDown' || key === 'Down') {
+      moveFocusVertical(1);
+      e.preventDefault();
+    } else if (keyCode === 37 || key === 'ArrowLeft' || key === 'Left') {
+      moveFocusHorizontal(-1);
+      e.preventDefault();
+    } else if (keyCode === 39 || key === 'ArrowRight' || key === 'Right') {
+      moveFocusHorizontal(1);
+      e.preventDefault();
+    } else if (keyCode === 13 || key === 'Enter') {
+      handleOkPress();
+      e.preventDefault();
     }
   }
 
@@ -626,7 +621,7 @@
   // Aggiornamento O(1) focus visivo e scroll matematico ultra-rapido (senza layout thrashing)
   function updateFocusVisuals() {
     if (state.focusZone === 'channels') {
-      const target = (el.channelsList && el.channelsList.children[state.focusedChannelIdx]) || document.getElementById(`channel-item-${state.focusedChannelIdx}`);
+      const target = (el.channelsList && el.channelsList.children ? el.channelsList.children[state.focusedChannelIdx] : null) || document.getElementById(`channel-item-${state.focusedChannelIdx}`);
       if (currentFocusedChannelEl && currentFocusedChannelEl !== target) {
         currentFocusedChannelEl.classList.remove('focused');
       }
@@ -635,22 +630,24 @@
         currentFocusedChannelEl = target;
 
         // Scorrimento ultra-veloce GPU compositor basato su scrollTop (senza reflow del layout)
-        const itemHeight = target.offsetHeight || 86;
-        const gap = 10;
-        const totalHeight = itemHeight + gap;
-        const targetTop = state.focusedChannelIdx * totalHeight;
         const container = el.channelsList;
-        const containerHeight = container.clientHeight;
-        const currentScroll = container.scrollTop;
+        if (container) {
+          const itemHeight = target.offsetHeight || 84;
+          const gap = 10;
+          const totalHeight = itemHeight + gap;
+          const targetTop = state.focusedChannelIdx * totalHeight;
+          const containerHeight = container.clientHeight || 600;
+          const currentScroll = container.scrollTop || 0;
 
-        if (targetTop < currentScroll + totalHeight) {
-          container.scrollTop = Math.max(0, targetTop - totalHeight);
-        } else if (targetTop + totalHeight > currentScroll + containerHeight - totalHeight) {
-          container.scrollTop = targetTop + totalHeight * 2 - containerHeight;
+          if (targetTop < currentScroll + totalHeight) {
+            container.scrollTop = Math.max(0, targetTop - totalHeight);
+          } else if (targetTop + totalHeight > currentScroll + containerHeight - totalHeight) {
+            container.scrollTop = targetTop + totalHeight * 2 - containerHeight;
+          }
         }
       }
     } else if (state.focusZone === 'groups') {
-      const target = el.groupsList ? el.groupsList.children[state.focusedGroupIdx] : null;
+      const target = (el.groupsList && el.groupsList.children ? el.groupsList.children[state.focusedGroupIdx] : null);
       if (currentFocusedGroupEl && currentFocusedGroupEl !== target) {
         currentFocusedGroupEl.classList.remove('focused');
       }
@@ -658,18 +655,20 @@
         target.classList.add('focused');
         currentFocusedGroupEl = target;
 
-        const itemHeight = target.offsetHeight || 58;
-        const gap = 10;
-        const totalHeight = itemHeight + gap;
-        const targetTop = state.focusedGroupIdx * totalHeight;
         const container = el.groupsList;
-        const containerHeight = container.clientHeight;
-        const currentScroll = container.scrollTop;
+        if (container) {
+          const itemHeight = target.offsetHeight || 58;
+          const gap = 10;
+          const totalHeight = itemHeight + gap;
+          const targetTop = state.focusedGroupIdx * totalHeight;
+          const containerHeight = container.clientHeight || 600;
+          const currentScroll = container.scrollTop || 0;
 
-        if (targetTop < currentScroll + totalHeight) {
-          container.scrollTop = Math.max(0, targetTop - totalHeight);
-        } else if (targetTop + totalHeight > currentScroll + containerHeight - totalHeight) {
-          container.scrollTop = targetTop + totalHeight * 2 - containerHeight;
+          if (targetTop < currentScroll + totalHeight) {
+            container.scrollTop = Math.max(0, targetTop - totalHeight);
+          } else if (targetTop + totalHeight > currentScroll + containerHeight - totalHeight) {
+            container.scrollTop = targetTop + totalHeight * 2 - containerHeight;
+          }
         }
       }
     }
