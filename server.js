@@ -25,6 +25,7 @@ try {
 
 const storage = require('./services/storage');
 const { channelUsesWarp, rewriteWarpPlaylist } = require('./services/stream-routing');
+const { redactDiagnostic, createFfmpegDiagnostics, parseStreamHeaders, requireMpdDocument } = require('./services/mpd-diagnostics');
 const { CATALOG_SECTIONS, ExtractorEngine, sanitizeGroupName } = require('./services/extractor');
 const epgManager = require('./services/epg');
 const eventsManager = require('./services/events');
@@ -1346,14 +1347,7 @@ app.get('/internal/mpd', async (req, res) => {
   if (!targetUrl) return res.status(400).send('URL mancante');
 
   try {
-    const reqHeaders = {};
-    if (headersStr) {
-      const pairs = headersStr.split('&');
-      for (const p of pairs) {
-        const [k, ...v] = p.split('=');
-        if (k && v.length) reqHeaders[k.trim()] = v.join('=').trim();
-      }
-    }
+    const reqHeaders = parseStreamHeaders(headersStr);
     const axiosOpts = {
       headers: reqHeaders,
       timeout: 10000,
@@ -1363,12 +1357,14 @@ app.get('/internal/mpd', async (req, res) => {
     };
     if (useWarp) {
       const agent = getWarpAgent();
+      if (!agent) throw new Error('Proxy WARP non disponibile: controllare socks-proxy-agent e configurazione WARP');
       if (agent) {
         axiosOpts.httpAgent = agent;
         axiosOpts.httpsAgent = agent;
       }
     }
     const response = await axios.get(targetUrl, axiosOpts);
+    requireMpdDocument(response.data);
 
     let effectiveSessionId = sessionId;
     if (useWarp && !effectiveSessionId) {
@@ -1390,7 +1386,9 @@ app.get('/internal/mpd', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(processed);
   } catch (e) {
-    res.status(502).send(`Errore fetch MPD: ${e.message}`);
+    const detail = redactDiagnostic(e.message);
+    console.warn(`[MPD Fetch] session=${sessionId || 'none'} WARP=${useWarp ? 'on' : 'off'} HTTP=${e.response?.status || '-'} code=${e.code || '-'}: ${detail}`);
+    res.status(502).send(`Errore fetch MPD: ${detail}`);
   }
 });
 
@@ -1567,21 +1565,8 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     : `${targetUrl}#${keyHex}`;
   const streamKey = useWarp ? `${baseKey}#warp` : baseKey;
 
-  // Formatta headers per FFmpeg (-headers "Key: Value\r\n...")
-  let formattedHeaders = '';
-  if (headersStr) {
-    if (headersStr.includes('&')) {
-      const pairs = headersStr.split('&');
-      const formatted = [];
-      for (const p of pairs) {
-        const [k, ...v] = p.split('=');
-        if (k && v.length) formatted.push(`${k.trim()}: ${v.join('=').trim()}`);
-      }
-      formattedHeaders = formatted.join('\r\n') + '\r\n';
-    } else if (headersStr.includes(':')) {
-      formattedHeaders = headersStr.endsWith('\r\n') ? headersStr : `${headersStr}\r\n`;
-    }
-  }
+  const reqHeaders = parseStreamHeaders(headersStr);
+  const formattedHeaders = Object.entries(reqHeaders).map(([name, value]) => `${name}: ${value}\r\n`).join('');
 
   req.on('error', () => {});
   res.on('error', () => {});
@@ -1656,14 +1641,6 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
   // Genera sessionId univoco per il proxying dei segmenti DASH
   const sessionId = crypto.createHash('md5').update(streamKey).digest('hex').substring(0, 16);
 
-  const reqHeaders = {};
-  if (headersStr) {
-    const pairs = headersStr.split('&');
-    for (const p of pairs) {
-      const [k, ...v] = p.split('=');
-      if (k && v.length) reqHeaders[k.trim()] = v.join('=').trim();
-    }
-  }
   dashSegmentSessions.set(sessionId, {
     targetUrl,
     headers: reqHeaders,
@@ -1784,11 +1761,8 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
     }
   });
 
-  let errLog = '';
-  ffmpegProc.stderr.on('data', (data) => {
-    errLog += data.toString();
-    if (errLog.length > 500) errLog = errLog.substring(errLog.length - 500);
-  });
+  const diagnostics = createFfmpegDiagnostics();
+  ffmpegProc.stderr.on('data', data => diagnostics.push(data));
 
   ffmpegProc.on('error', (err) => {
     console.error(`[MPD ClearKey Proxy] Errore esecuzione FFmpeg: ${err.message}`);
@@ -1801,7 +1775,7 @@ async function streamMpdClearKey(channelIdOrUrl, queryKey, queryHeaders, req, re
 
   ffmpegProc.on('close', (code) => {
     if (code !== 0 && code !== 255 && code !== null) {
-      console.warn(`[MPD ClearKey Proxy] FFmpeg terminato con codice ${code}: ${errLog.trim()}`);
+      console.warn(`[MPD ClearKey Proxy] FFmpeg terminato con codice ${code} session=${sessionId} WARP=${useWarp ? 'on' : 'off'}:\n${diagnostics.text()}`);
     }
     if (streamState.closeTimer) clearTimeout(streamState.closeTimer);
     for (const r of streamState.listeners) {
