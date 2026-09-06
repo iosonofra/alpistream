@@ -208,7 +208,7 @@ class EPGManager {
     }
 
     if (successCount > 0 && channelsMap.size > 0) {
-      const combinedXml = `<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="MandraKodi EPG Server (EPGShare)">\n` +
+      const combinedXml = `<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="iosonofratv EPG Server (EPGShare)">\n` +
         Array.from(channelsMap.values()).join('\n') + '\n' +
         programmesList.join('\n') + '\n' +
         `</tv>`;
@@ -217,11 +217,11 @@ class EPGManager {
       this.lastUpdated = new Date();
       console.log(`[EPG] Cache XMLTV completata e salvata: ${channelsMap.size} canali, ${programmesList.length} programmi`);
 
-      // Riassegna in automatico i tvg-id corrispondenti ai canali MandraKodi
+      // Riassegna in automatico i tvg-id corrispondenti ai canali iosonofratv
       this.remapExistingChannels();
     } else {
       if (!fs.existsSync(EPG_CACHE_FILE)) {
-        const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="MandraKodi EPG Server">\n</tv>`;
+        const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="iosonofratv EPG Server">\n</tv>`;
         fs.writeFileSync(EPG_CACHE_FILE, emptyXml, 'utf-8');
       }
     }
@@ -234,7 +234,7 @@ class EPGManager {
     if (fs.existsSync(EPG_CACHE_FILE)) {
       return fs.readFileSync(EPG_CACHE_FILE, 'utf-8');
     }
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="MandraKodi EPG Server">\n</tv>`;
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="iosonofratv EPG Server">\n</tv>`;
   }
 
   getStatus() {

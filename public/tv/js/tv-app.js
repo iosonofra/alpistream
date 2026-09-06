@@ -1,5 +1,5 @@
 /**
- * MandraKodi TV - Main Controller & Remote Control Navigation
+ * iosonofratv - Main Controller & Remote Control Navigation
  * TiviMate-style 10-foot UI, D-Pad Spatial Navigation, EPG Timeline & Direct Channel Dialing
  */
 
@@ -121,7 +121,7 @@
     }, duration);
   }
 
-  // Caricamento Canali dal Server MandraKodi
+  // Caricamento Canali dal Server iosonofratv
   async function loadChannels() {
     showSpinner('Caricamento canali...');
     try {

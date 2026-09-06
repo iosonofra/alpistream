@@ -101,7 +101,7 @@ function verifyToken(req, res, next) {
 // -------------------------------------------------------------
 
 // Playlist M3U Principale
-app.get(['/playlist.m3u', '/playlist', '/live.m3u'], verifyToken, (req, res) => {
+app.get(['/playlist.m3u', '/playlist', '/live.m3u', '/iosonofratv.m3u', '/mandrakodi.m3u'], verifyToken, (req, res) => {
   const channels = storage.getChannels();
   const customChannels = storage.getCustomChannels();
   const groupOrder = storage.getGroupOrder();
@@ -129,7 +129,7 @@ app.get(['/playlist.m3u', '/playlist', '/live.m3u'], verifyToken, (req, res) => 
   const m3uContent = extractor.generateM3U(channels, customChannels, groupOrder, epgUrl, baseUrl, tokenParam);
 
   res.setHeader('Content-Type', 'application/x-mpegurl; charset=utf-8');
-  res.setHeader('Content-Disposition', 'inline; filename="mandrakodi.m3u"');
+  res.setHeader('Content-Disposition', 'inline; filename="iosonofratv.m3u"');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(m3uContent);
 });
@@ -1944,7 +1944,7 @@ app.post('/api/config', (req, res) => {
 // -------------------------------------------------------------
 app.listen(PORT, () => {
   console.log('='.repeat(65));
-  console.log(`  MandraKodi Web Extractor & Channel Manager attivo su http://localhost:${PORT}`);
+  console.log(`  iosonofratv Web Extractor & Channel Manager attivo su http://localhost:${PORT}`);
   console.log(`  Playlist M3U Remota: http://localhost:${PORT}/playlist.m3u`);
   console.log(`  Guida EPG Remota:    http://localhost:${PORT}/epg.xml`);
   console.log('='.repeat(65));

@@ -1,5 +1,5 @@
 /**
- * MandraKodi TV - Hybrid Video Player Engine
+ * iosonofratv - Hybrid Video Player Engine
  * Supporto per HLS (Hls.js & Native webOS), MPEG-TS Stream Copy (mpegts.js) e Auto-Recovery
  */
 
@@ -70,7 +70,7 @@ class TvPlayer {
     let url = (channel.url || '').trim();
     if (!url) return '';
 
-    // Se l'URL è relativo (/stream/...), risolvilo rispetto all'indirizzo server MandraKodi
+    // Se l'URL è relativo (/stream/...), risolvilo rispetto all'indirizzo server iosonofratv
     if (url.startsWith('/')) {
       return `${this.serverBase}${url}`;
     }

@@ -1,5 +1,5 @@
 /**
- * MandraKodi TV - Standalone IPK Packager for LG webOS Smart TV
+ * iosonofratv - Standalone IPK Packager for LG webOS Smart TV
  * Genera il pacchetto .ipk standard senza richiedere l'SDK webOS o CLI esterne.
  * Compatibile al 100% con webOS Dev Manager, Homebrew Channel e ares-cli.
  */

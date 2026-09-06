@@ -39,7 +39,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
       dashboard: ['Dashboard', 'Panoramica del server e link di streaming remoti'],
       events: ['Eventi Live (Guida TV)', 'Palinsesto sportivo giornaliero stile LiveOnSat con link ai canali diretti e ufficiali'],
       livetv: ['Web Player (Live TV)', 'Guarda in diretta e testa i canali con supporto ClearKey DRM in-browser'],
-      sources: ['Sorgenti Liste', 'Configura le sezioni MandraKodi da includere nell\'estrazione'],
+      sources: ['Sorgenti Liste', 'Configura le sezioni iosonofratv da includere nell\'estrazione'],
       editor: ['Editor Canali', 'Abilita, disabilita, rinomina e personalizza i canali della playlist'],
       groups: ['Ordine Gruppi', 'Personalizza l\'ordinamento delle categorie e la sequenza dei canali nella playlist M3U'],
       custom: ['Canali Custom', 'Aggiungi stream personalizzati (.m3u8, .mpd)'],

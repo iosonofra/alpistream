@@ -1,14 +1,14 @@
 {
-  "name": "mandrakodi-web-manager",
+  "name": "iosonofratv-web-manager",
   "version": "1.1.0",
-  "description": "MandraKodi Web Manager, IPTV Hub & Centralized AceStream Proxy",
+  "description": "iosonofratv Web Manager, IPTV Hub & Centralized Stream Proxy",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
   "keywords": [
-    "mandrakodi",
+    "iosonofratv",
     "iptv",
     "m3u",
     "epg",

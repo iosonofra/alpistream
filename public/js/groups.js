@@ -1,4 +1,4 @@
-// Gestione e Ordinamento Gruppi Playlist MandraKodi
+// Gestione e Ordinamento Gruppi Playlist iosonofratv
 
 let currentGroupsList = [];
 let dragSourceIndex = null;
@@ -49,7 +49,7 @@ function renderGroupsList(groupsArray) {
   if (!container) return;
 
   if (!groupsArray || groupsArray.length === 0) {
-    container.innerHTML = '<div class="text-muted" style="padding: 24px; text-align: center;">Nessun gruppo trovato. Estrai prima i canali da MandraKodi.</div>';
+    container.innerHTML = '<div class="text-muted" style="padding: 24px; text-align: center;">Nessun gruppo trovato. Estrai prima i canali da iosonofratv.</div>';
     return;
   }
 
