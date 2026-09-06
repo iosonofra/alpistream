@@ -112,6 +112,7 @@ body.tv-body {
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .header-brand {
@@ -185,6 +186,7 @@ body.tv-body {
 .tv-main-layout {
   display: flex;
   flex: 1;
+  min-height: 0;
   gap: 30px;
   overflow: hidden;
 }
@@ -193,6 +195,7 @@ body.tv-body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 
 .column-header {
@@ -201,6 +204,7 @@ body.tv-body {
   align-items: center;
   margin-bottom: 12px;
   padding: 0 8px;
+  flex-shrink: 0;
 }
 
 .column-title {
@@ -220,17 +224,21 @@ body.tv-body {
 .groups-column {
   width: 380px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .groups-list {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
   padding-right: 8px;
   scrollbar-width: none;
-  contain: strict;
-  will-change: scroll-position;
 }
 
 .groups-list::-webkit-scrollbar {
@@ -249,7 +257,7 @@ body.tv-body {
   align-items: center;
   border: 1px solid transparent;
   cursor: pointer;
-  contain: content;
+  flex-shrink: 0;
 }
 
 .group-item .item-count {
@@ -278,17 +286,21 @@ body.tv-body {
   flex: 1;
   min-width: 0;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .channels-list {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
   padding-right: 8px;
   scrollbar-width: none;
-  contain: strict;
-  will-change: scroll-position;
 }
 
 .channels-list::-webkit-scrollbar {
@@ -305,10 +317,8 @@ body.tv-body {
   border: 1px solid var(--border-subtle);
   cursor: pointer;
   position: relative;
-  contain: content;
-  content-visibility: auto;
-  contain-intrinsic-size: 86px;
   min-height: 84px;
+  flex-shrink: 0;
 }
 
 .channel-item.active-playing {
@@ -416,6 +426,7 @@ body.tv-body {
   border-top: 1px solid var(--border-subtle);
   font-size: 14px;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .hint-item {
