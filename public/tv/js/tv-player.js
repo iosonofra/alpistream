@@ -1,0 +1,241 @@
+/**
+ * MandraKodi TV - Hybrid Video Player Engine
+ * Supporto per HLS (Hls.js & Native webOS), MPEG-TS Stream Copy (mpegts.js) e Auto-Recovery
+ */
+
+class TvPlayer {
+  constructor() {
+    this.video = null;
+    this.hlsInstance = null;
+    this.mpegInstance = null;
+    this.currentChannel = null;
+    this.serverBase = '';
+    this.onStatusChange = null;
+    this.retryCount = 0;
+    this.maxRetries = 2;
+    this.fallbackTriggered = false;
+  }
+
+  init(videoEl, serverBaseUrl, onStatusChange) {
+    this.video = videoEl;
+    this.serverBase = (serverBaseUrl || window.location.origin).replace(/\/$/, '');
+    this.onStatusChange = onStatusChange || (() => {});
+
+    // Eventi video nativi
+    this.video.addEventListener('playing', () => {
+      this.retryCount = 0;
+      this.onStatusChange('playing', { channel: this.currentChannel });
+    });
+
+    this.video.addEventListener('waiting', () => {
+      this.onStatusChange('buffering', { channel: this.currentChannel });
+    });
+
+    this.video.addEventListener('error', (e) => {
+      console.warn('[TvPlayer] Errore elemento video nativo:', e);
+      this.handlePlaybackError('Errore di decodifica video');
+    });
+  }
+
+  setServerBase(url) {
+    this.serverBase = (url || window.location.origin).replace(/\/$/, '');
+  }
+
+  async stop() {
+    if (this.hlsInstance) {
+      try { this.hlsInstance.destroy(); } catch (e) {}
+      this.hlsInstance = null;
+    }
+    if (this.mpegInstance) {
+      try {
+        this.mpegInstance.pause();
+        this.mpegInstance.unload();
+        this.mpegInstance.detachMediaElement();
+        this.mpegInstance.destroy();
+      } catch (e) {}
+      this.mpegInstance = null;
+    }
+    if (this.video) {
+      try {
+        this.video.pause();
+        this.video.removeAttribute('src');
+        this.video.load();
+      } catch (e) {}
+    }
+    this.currentChannel = null;
+    this.fallbackTriggered = false;
+  }
+
+  resolveUrl(channel) {
+    let url = (channel.url || '').trim();
+    if (!url) return '';
+
+    // Se l'URL è relativo (/stream/...), risolvilo rispetto all'indirizzo server MandraKodi
+    if (url.startsWith('/')) {
+      return `${this.serverBase}${url}`;
+    }
+    return url;
+  }
+
+  async play(channel) {
+    await this.stop();
+    this.currentChannel = channel;
+    this.fallbackTriggered = false;
+    this.retryCount = 0;
+
+    const streamUrl = this.resolveUrl(channel);
+    if (!streamUrl) {
+      this.onStatusChange('error', { error: 'URL canale vuoto o non valido' });
+      return;
+    }
+
+    this.onStatusChange('loading', { channel, url: streamUrl });
+
+    // 1. Riconoscimento stream AceStream o MPEG-TS Server Copy
+    const isMpegTs = channel.streamMode === 'ffmpeg_copy' ||
+      channel.mpdProxy === true ||
+      (channel.id && channel.id.endsWith('_ffmpeg')) ||
+      streamUrl.includes('/stream/mpd/') ||
+      streamUrl.includes('/stream/ace/') ||
+      streamUrl.endsWith('.ts');
+
+    if (isMpegTs) {
+      this.playMpegTs(streamUrl);
+      return;
+    }
+
+    // 2. Riconoscimento stream HLS (HTSport, TVNow, m3u8 standard)
+    const isHls = streamUrl.includes('.m3u8') ||
+      streamUrl.includes('chunk.tvnow247.today') ||
+      (channel.kodi_props && channel.kodi_props['inputstream.adaptive.manifest_type'] === 'hls');
+
+    if (isHls) {
+      this.playHls(streamUrl);
+      return;
+    }
+
+    // 3. Fallback Diretto HTML5
+    this.playNative(streamUrl);
+  }
+
+  playMpegTs(url) {
+    console.log('[TvPlayer] Avvio riproduzione MPEG-TS:', url);
+
+    // Se mpegts.js è supportato (MSE)
+    if (window.mpegts && mpegts.isSupported()) {
+      try {
+        this.mpegInstance = mpegts.createPlayer({
+          type: 'mse',
+          isLive: true,
+          url: url
+        }, {
+          enableWorker: false, // Disabilitato per compatibilità con browser webOS più vecchi
+          lazyLoadMaxDuration: 3 * 60,
+          seekType: 'range',
+          liveBufferLatencyChasing: false,
+          liveBufferLatencyMaxLatency: 6,
+          liveBufferLatencyMinRemain: 2,
+          autoCleanupSourceBuffer: true
+        });
+
+        this.mpegInstance.on(mpegts.Events.ERROR, (type, detail, info) => {
+          console.warn('[TvPlayer] Errore mpegts.js:', type, detail, info);
+          this.handlePlaybackError('Errore flusso MPEG-TS');
+        });
+
+        this.mpegInstance.attachMediaElement(this.video);
+        this.mpegInstance.load();
+        this.mpegInstance.play().catch(err => {
+          console.warn('[TvPlayer] Autoplay mpegts bloccato:', err);
+        });
+        return;
+      } catch (e) {
+        console.warn('[TvPlayer] Fallito avvio mpegts.js, tento con tag video nativo:', e);
+      }
+    }
+
+    // Fallback nativo webOS (alcune Smart TV LG decodificano il mime video/mp2t nativamente)
+    this.playNative(url);
+  }
+
+  playHls(url) {
+    console.log('[TvPlayer] Avvio riproduzione HLS:', url);
+
+    // Priorità: Hls.js con buffer controllato
+    if (window.Hls && Hls.isSupported()) {
+      try {
+        this.hlsInstance = new Hls({
+          maxBufferLength: 8,
+          maxMaxBufferLength: 20,
+          liveSyncDurationCount: 3,
+          enableWorker: false // Massima stabilità su TV LG
+        });
+
+        this.hlsInstance.loadSource(url);
+        this.hlsInstance.attachMedia(this.video);
+
+        this.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+          this.video.play().catch(() => {});
+        });
+
+        this.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            console.warn('[TvPlayer] Errore fatale Hls.js:', data.type, data.details);
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                if (this.retryCount < this.maxRetries) {
+                  this.retryCount++;
+                  this.hlsInstance.startLoad();
+                } else {
+                  this.handlePlaybackError('Errore di rete sorgente');
+                }
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                this.hlsInstance.recoverMediaError();
+                break;
+              default:
+                this.handlePlaybackError('Errore decodifica HLS');
+                break;
+            }
+          }
+        });
+        return;
+      } catch (e) {
+        console.warn('[TvPlayer] Fallito avvio Hls.js, passo a tag nativo:', e);
+      }
+    }
+
+    // Fallback HLS Nativo (webOS lo supporta egregiamente nei tag video standard)
+    this.playNative(url);
+  }
+
+  playNative(url) {
+    console.log('[TvPlayer] Avvio riproduzione nativa:', url);
+    this.video.src = url;
+    this.video.play().catch(e => {
+      console.warn('[TvPlayer] Autoplay nativo rifiutato o fallito:', e);
+    });
+  }
+
+  handlePlaybackError(msg) {
+    // Se il canale ha una variante o supporto MPD server-side e non l'abbiamo ancora provato
+    if (!this.fallbackTriggered && this.currentChannel) {
+      this.fallbackTriggered = true;
+      const ch = this.currentChannel;
+      const hasClearKey = ch.clearkey && !['0000', '0:0', '0'].includes(String(ch.clearkey).trim());
+
+      if (hasClearKey || (ch.id && !ch.id.endsWith('_ffmpeg'))) {
+        const fallbackUrl = `${this.serverBase}/stream/mpd/${ch.id}.ts`;
+        console.log('[TvPlayer] Auto-Fallback attivo verso FFmpeg Stream Copy centralizzato:', fallbackUrl);
+        this.onStatusChange('loading', { channel: ch, fallback: true });
+        this.playMpegTs(fallbackUrl);
+        return;
+      }
+    }
+
+    this.onStatusChange('error', { error: msg, channel: this.currentChannel });
+  }
+}
+
+// Esporta istanza singleton globale
+window.tvPlayer = new TvPlayer();

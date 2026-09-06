@@ -1,0 +1,21 @@
+{
+  "id": "com.mandrakodi.tv",
+  "version": "1.0.0",
+  "vendor": "MandraKodi",
+  "type": "web",
+  "main": "index.html",
+  "title": "MandraKodi TV",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgImage": "background.png",
+  "splashBackground": "background.png",
+  "resolution": "1920x1080",
+  "trustLevel": "default",
+  "requiredPermissions": [
+    "media",
+    "network"
+  ],
+  "accessibility": {
+    "supportsAudioGuidance": false
+  }
+}

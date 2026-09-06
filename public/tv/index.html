@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>MandraKodi TV</title>
+  <link rel="stylesheet" href="css/tv.css">
+  <!-- Vendor player libraries (Hls.js & mpegts.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
+</head>
+<body class="tv-body">
+  <!-- Sfondo Video a Tutto Schermo -->
+  <div id="video-container" class="video-container">
+    <video id="tv-video" playsinline autoplay></video>
+    <div id="video-spinner" class="video-spinner hidden">
+      <div class="spinner-ring"></div>
+      <span id="spinner-text">Caricamento flusso...</span>
+    </div>
+  </div>
+
+  <!-- OSD Salto Canale Diretto (Tasti Numerici) -->
+  <div id="number-jump-osd" class="number-jump-osd hidden">
+    <span class="jump-label">Canale</span>
+    <span id="jump-digits" class="jump-digits">0</span>
+  </div>
+
+  <!-- Overlay Principale Navigazione (TiviMate Style) -->
+  <div id="tv-overlay" class="tv-overlay">
+    <!-- Top Header -->
+    <header class="tv-header">
+      <div class="header-brand">
+        <div class="brand-logo-icon">M</div>
+        <span class="brand-title">MANDRA<span class="brand-highlight">KODI</span> TV</span>
+      </div>
+      <div class="header-status">
+        <span id="active-server-badge" class="badge badge-server">Cloud</span>
+        <span id="active-channel-counter" class="channel-counter">0 canali</span>
+        <span id="tv-clock" class="tv-clock">--:--</span>
+      </div>
+    </header>
+
+    <!-- Main Navigation Columns -->
+    <div class="tv-main-layout">
+      <!-- Colonna 1: Gruppi / Categorie -->
+      <nav id="groups-column" class="tv-column groups-column">
+        <div class="column-header">
+          <span class="column-title">CATEGORIE</span>
+        </div>
+        <div id="groups-list" class="groups-list" tabindex="-1">
+          <!-- Inseriti dinamicamente via JS -->
+        </div>
+      </nav>
+
+      <!-- Colonna 2: Lista Canali con EPG -->
+      <section id="channels-column" class="tv-column channels-column">
+        <div class="column-header">
+          <span id="current-group-title" class="column-title">CANALI</span>
+          <span id="channels-group-count" class="group-count">0</span>
+        </div>
+        <div id="channels-list" class="channels-list" tabindex="-1">
+          <!-- Inseriti dinamicamente via JS -->
+        </div>
+      </section>
+    </div>
+
+    <!-- Guida Tasti Telecomando Rapida in Basso -->
+    <footer class="tv-footer-hints">
+      <div class="hint-item"><span class="key-badge">▲▼</span> Canale</div>
+      <div class="hint-item"><span class="key-badge">◄►</span> Categoria / Canali</div>
+      <div class="hint-item"><span class="key-badge">OK</span> Riproduci</div>
+      <div class="hint-item"><span class="key-badge">BACK</span> Schermo intero</div>
+      <div class="hint-item"><span class="key-badge color-blue">■</span> Impostazioni</div>
+    </footer>
+  </div>
+
+  <!-- OSD Inferiore a Scomparsa (Player Info & EPG) -->
+  <div id="tv-bottom-osd" class="tv-bottom-osd hidden">
+    <div class="osd-content">
+      <div class="osd-logo-box">
+        <img id="osd-channel-logo" src="" alt="" class="osd-logo">
+      </div>
+      <div class="osd-info-box">
+        <div class="osd-channel-row">
+          <span id="osd-channel-number" class="osd-ch-no">CH 1</span>
+          <h2 id="osd-channel-title" class="osd-title">Nome Canale</h2>
+          <span id="osd-stream-badge" class="badge badge-codec">HLS</span>
+        </div>
+        <div class="osd-epg-now">
+          <span id="osd-epg-now-title" class="epg-title">Caricamento guida TV...</span>
+          <span id="osd-epg-now-time" class="epg-time">--:-- - --:--</span>
+        </div>
+        <div class="osd-progress-container">
+          <div id="osd-epg-progress-bar" class="osd-progress-bar" style="width: 0%;"></div>
+        </div>
+        <div class="osd-epg-next">
+          <span class="next-label">A seguire:</span>
+          <span id="osd-epg-next-title" class="next-title">Nessuna informazione</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Impostazioni Server TV -->
+  <div id="tv-settings-modal" class="tv-modal hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>⚙️ Impostazioni MandraKodi TV</h3>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="cfg-server-url">Indirizzo Server MandraKodi:</label>
+          <input type="text" id="cfg-server-url" class="tv-input" placeholder="https://alpistream.iosonofra.click o http://192.168.1.50:3000">
+          <small class="field-hint">Puoi usare il dominio Cloudflare o l'IP locale del tuo container Proxmox.</small>
+        </div>
+        <div class="form-group">
+          <label for="cfg-auth-token">Auth Token (opzionale):</label>
+          <input type="text" id="cfg-auth-token" class="tv-input" placeholder="Lascia vuoto se non richiesto">
+        </div>
+        <div class="form-group">
+          <label for="cfg-player-mode">Modalità Riproduzione Preferita:</label>
+          <select id="cfg-player-mode" class="tv-select">
+            <option value="auto">Ibrido Intelligente (Auto-Fallback)</option>
+            <option value="direct">Diretto HLS (Max Prestazioni)</option>
+            <option value="stream_copy">Centralizzato FFmpeg MPEG-TS (Max Compatibilità)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="tv-btn tv-btn-primary">Salva e Ricarica</button>
+        <button id="btn-cancel-settings" class="tv-btn tv-btn-secondary">Annulla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifiche TV -->
+  <div id="tv-toast" class="tv-toast hidden"></div>
+
+  <!-- Scripts dell'applicazione -->
+  <script src="js/tv-player.js"></script>
+  <script src="js/tv-app.js"></script>
+</body>
+</html>

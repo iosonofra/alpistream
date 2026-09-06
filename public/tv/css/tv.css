@@ -1,0 +1,708 @@
+/* ==========================================================================
+   MandraKodi TV - 10-Foot UI Stylesheet (TiviMate & OTT Navigator Style)
+   Ottimizzato per Smart TV LG webOS, risoluzione 1080p/4K e navigazione D-Pad
+   ========================================================================== */
+
+:root {
+  --bg-dark: #07090e;
+  --bg-glass: rgba(14, 18, 26, 0.82);
+  --bg-glass-card: rgba(22, 28, 42, 0.72);
+  --bg-glass-active: rgba(36, 46, 68, 0.9);
+  --accent-cyan: #00e5ff;
+  --accent-blue: #0070f3;
+  --accent-purple: #7928ca;
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --focus-glow: 0 0 24px rgba(0, 229, 255, 0.75), 0 0 4px #00e5ff;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body.tv-body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #000000;
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  position: relative;
+}
+
+/* 1. Sfondo Video a Schermo Intero */
+.video-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  background-color: #000;
+}
+
+#tv-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.video-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 24px 36px;
+  border-radius: 16px;
+  backdrop-filter: blur(8px);
+  z-index: 5;
+}
+
+.spinner-ring {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent-cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 2. Overlay Principale di Navigazione */
+.tv-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  background: linear-gradient(90deg, rgba(7, 9, 14, 0.94) 0%, rgba(7, 9, 14, 0.88) 55%, rgba(7, 9, 14, 0.2) 100%);
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 40px;
+  opacity: 1;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.tv-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(1.02);
+}
+
+/* Header */
+.tv-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 60px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-logo-icon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+  color: #000;
+  font-weight: 900;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(0, 229, 255, 0.4);
+}
+
+.brand-title {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.brand-highlight {
+  color: var(--accent-cyan);
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.tv-clock {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-counter {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.badge {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.badge-server {
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+}
+
+.badge-codec {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* Layout Principale a Colonne */
+.tv-main-layout {
+  display: flex;
+  flex: 1;
+  gap: 30px;
+  overflow: hidden;
+}
+
+.tv-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 0 8px;
+}
+
+.column-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.group-count {
+  font-size: 15px;
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+/* Colonna 1: Categorie */
+.groups-column {
+  width: 320px;
+  flex-shrink: 0;
+}
+
+.groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: none;
+}
+
+.groups-list::-webkit-scrollbar {
+  display: none;
+}
+
+.group-item {
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--bg-glass-card);
+  color: var(--text-secondary);
+  font-size: 17px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.group-item .item-count {
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.group-item.active {
+  background: rgba(0, 229, 255, 0.15);
+  color: #fff;
+  border-color: rgba(0, 229, 255, 0.4);
+}
+
+.group-item.focused {
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.25), rgba(121, 40, 202, 0.25));
+  border: 2px solid var(--accent-cyan);
+  box-shadow: var(--focus-glow);
+  transform: translateX(6px) scale(1.02);
+  color: #fff;
+}
+
+/* Colonna 2: Canali con EPG */
+.channels-column {
+  flex: 1;
+  max-width: 820px;
+}
+
+.channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: none;
+}
+
+.channels-list::-webkit-scrollbar {
+  display: none;
+}
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: var(--bg-glass-card);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.channel-item.active-playing {
+  border-left: 5px solid var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.12);
+}
+
+.channel-item.focused {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.15), rgba(0, 229, 255, 0.2));
+  border: 2px solid var(--accent-cyan);
+  box-shadow: var(--focus-glow);
+  transform: scale(1.02);
+  z-index: 2;
+}
+
+.channel-num {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-muted);
+  width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-logo-wrapper {
+  width: 54px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 8px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.channel-logo-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.channel-text-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.channel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.channel-name {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-epg-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.epg-now-text {
+  font-size: 15px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.epg-mini-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.epg-mini-bar-fill {
+  height: 100%;
+  background: var(--accent-cyan);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Footer Hints */
+.tv-footer-hints {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding-top: 14px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.hint-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-badge {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.key-badge.color-blue {
+  background: var(--accent-blue);
+}
+
+/* 3. OSD Inferiore a Scomparsa (Player Overlay) */
+.tv-bottom-osd {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 80px);
+  max-width: 1280px;
+  background: rgba(10, 14, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
+  border-radius: 20px;
+  backdrop-filter: blur(20px);
+  padding: 20px 28px;
+  z-index: 20;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  opacity: 1;
+}
+
+.tv-bottom-osd.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 20px);
+}
+
+.osd-content {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.osd-logo-box {
+  width: 90px;
+  height: 65px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  flex-shrink: 0;
+}
+
+.osd-logo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.osd-info-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.osd-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.osd-ch-no {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--accent-cyan);
+}
+
+.osd-title {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.osd-epg-now {
+  display: flex;
+  justify-content: space-between;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.osd-epg-now .epg-title {
+  color: #fff;
+}
+
+.osd-epg-now .epg-time {
+  color: var(--text-secondary);
+}
+
+.osd-progress-container {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 2px 0;
+}
+
+.osd-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-cyan), #00a2ff);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.osd-epg-next {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.osd-epg-next .next-title {
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+/* 4. OSD Salto Canale Diretto */
+.number-jump-osd {
+  position: absolute;
+  top: 35px;
+  right: 45px;
+  background: rgba(0, 0, 0, 0.85);
+  border: 2px solid var(--accent-cyan);
+  box-shadow: var(--focus-glow);
+  padding: 14px 28px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 30;
+  animation: popIn 0.2s ease;
+}
+
+.number-jump-osd.hidden {
+  display: none;
+}
+
+.jump-label {
+  font-size: 18px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.jump-digits {
+  font-size: 38px;
+  font-weight: 900;
+  color: var(--accent-cyan);
+}
+
+/* 5. Modal Impostazioni */
+.tv-modal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(15px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.tv-modal.hidden {
+  display: none;
+}
+
+.modal-card {
+  width: 620px;
+  background: var(--bg-glass);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+  border-radius: 20px;
+  padding: 28px 36px;
+}
+
+.modal-header h3 {
+  font-size: 24px;
+  font-weight: 800;
+  margin-bottom: 20px;
+  color: var(--accent-cyan);
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.tv-input, .tv-select {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 17px;
+  outline: none;
+  transition: border 0.15s ease;
+}
+
+.tv-input.focused, .tv-select.focused {
+  border: 2px solid var(--accent-cyan);
+  box-shadow: var(--focus-glow);
+}
+
+.field-hint {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.tv-btn {
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: transform 0.15s ease;
+}
+
+.tv-btn.focused {
+  box-shadow: var(--focus-glow);
+  transform: scale(1.05);
+}
+
+.tv-btn-primary {
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+  color: #000;
+}
+
+.tv-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* 6. Toast */
+.tv-toast {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--accent-cyan);
+  box-shadow: var(--focus-glow);
+  padding: 14px 30px;
+  border-radius: 30px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  z-index: 50;
+  animation: fadeIn 0.2s ease;
+}
+
+.tv-toast.hidden {
+  display: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}

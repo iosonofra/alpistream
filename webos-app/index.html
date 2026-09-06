@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>MandraKodi TV Loader</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: radial-gradient(circle at center, #111827 0%, #030712 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .splash-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      text-align: center;
+    }
+    .logo-badge {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #00e5ff, #7928ca);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 46px;
+      font-weight: 900;
+      color: #000;
+      box-shadow: 0 10px 30px rgba(0, 229, 255, 0.4);
+    }
+    .title {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: 1px;
+    }
+    .title span { color: #00e5ff; }
+    .status-text {
+      font-size: 18px;
+      color: #94a3b8;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 4px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #00e5ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Offline Box */
+    .offline-box {
+      margin-top: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 24px 32px;
+      border-radius: 16px;
+      max-width: 540px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .offline-box.hidden { display: none; }
+    .input-server {
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.6);
+      border: 1px solid #475569;
+      color: #fff;
+      font-size: 16px;
+      width: 100%;
+      outline: none;
+    }
+    .input-server:focus {
+      border-color: #00e5ff;
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+    }
+    .btn {
+      padding: 12px 24px;
+      background: #00e5ff;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 16px;
+      cursor: pointer;
+      outline: none;
+    }
+    .btn:focus {
+      box-shadow: 0 0 20px rgba(0, 229, 255, 0.8);
+      transform: scale(1.05);
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-card">
+    <div class="logo-badge">M</div>
+    <h1 class="title">MANDRA<span>KODI</span> TV</h1>
+    <div id="spinner" class="spinner"></div>
+    <p id="status-text" class="status-text">Connessione al server MandraKodi in corso...</p>
+
+    <!-- Riquadro di configurazione in caso di mancata connessione -->
+    <div id="offline-box" class="offline-box hidden">
+      <p style="color: #f87171; font-weight: 600;">⚠️ Impossibile contattare il server.</p>
+      <input type="text" id="server-url-input" class="input-server" value="https://alpistream.iosonofra.click" placeholder="https://alpistream.iosonofra.click">
+      <button id="retry-btn" class="btn">Riprova Connessione</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const DEFAULT_URL = 'https://alpistream.iosonofra.click';
+      const storedUrl = localStorage.getItem('mandrakodi_tv_server') || DEFAULT_URL;
+
+      const statusText = document.getElementById('status-text');
+      const spinner = document.getElementById('spinner');
+      const offlineBox = document.getElementById('offline-box');
+      const inputEl = document.getElementById('server-url-input');
+      const retryBtn = document.getElementById('retry-btn');
+
+      inputEl.value = storedUrl;
+
+      function checkAndRedirect(url) {
+        const targetUrl = url.replace(/\/$/, '') + '/tv/';
+        statusText.textContent = 'Connessione a ' + targetUrl + '...';
+
+        // Ping di controllo con timeout 4s
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        fetch(url.replace(/\/$/, '') + '/api/channels', { signal: controller.signal })
+          .then(res => {
+            clearTimeout(timeoutId);
+            if (res.ok) {
+              localStorage.setItem('mandrakodi_tv_server', url.replace(/\/$/, ''));
+              window.location.replace(targetUrl);
+            } else {
+              showOfflinePrompt('Risposta server non valida (' + res.status + ')');
+            }
+          })
+          .catch(err => {
+            clearTimeout(timeoutId);
+            // Prova comunque a reindirizzare (utile se CORS blocca la fetch ma la pagina web caricherebbe)
+            console.warn('Ping fallito, tentativo di navigazione diretta:', err);
+            window.location.replace(targetUrl);
+          });
+      }
+
+      function showOfflinePrompt(msg) {
+        spinner.style.display = 'none';
+        statusText.textContent = msg || 'Connessione fallita.';
+        offlineBox.classList.remove('hidden');
+        retryBtn.focus();
+      }
+
+      retryBtn.addEventListener('click', function () {
+        const newUrl = inputEl.value.trim();
+        if (newUrl) {
+          spinner.style.display = 'block';
+          offlineBox.classList.add('hidden');
+          checkAndRedirect(newUrl);
+        }
+      });
+
+      // Tasto Back / Return su webOS
+      document.addEventListener('keydown', function (e) {
+        if (e.keyCode === 461 || e.keyCode === 27) {
+          if (window.webOS && window.webOS.platformBack) {
+            window.webOS.platformBack();
+          }
+        }
+      });
+
+      // Avvia reindirizzamento
+      checkAndRedirect(storedUrl);
+    })();
+  </script>
+</body>
+</html>

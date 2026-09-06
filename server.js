@@ -82,6 +82,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Route dedicata per l'interfaccia Smart TV a 10 piedi (LG webOS / TiviMate style)
+app.get(['/tv', '/tv/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'tv', 'index.html'));
+});
+
 // Middleware per verifica opzionale del token su link remoti
 function verifyToken(req, res, next) {
   const cfg = storage.getConfig();
