@@ -279,19 +279,12 @@ class HTSportService {
       const kodiProps = {};
 
       if (ch.provider === 'epiembeds') {
-        if (resolvedBase) {
-          playUrl = `${resolvedBase}/stream/htsport/epiembeds/${ch.providerParam}/playlist.m3u8${tokenParam || ''}`;
-        } else {
-          playUrl = `/stream/htsport/epiembeds/${ch.providerParam}/playlist.m3u8${tokenParam || ''}`;
-        }
-        kodiProps['inputstream'] = 'inputstream.adaptive';
-        kodiProps['inputstream.adaptive.manifest_type'] = 'hls';
+        // Embed diretto epiembeds senza proxy
+        playUrl = `https://epiembeds.online/embed/${ch.providerParam}`;
       } else if (ch.provider === 'tvnow') {
-        if (resolvedBase) {
-          playUrl = `${resolvedBase}/stream/htsport/tvnow/${ch.providerParam}/playlist.m3u8${tokenParam || ''}`;
-        } else {
-          playUrl = `/stream/htsport/tvnow/${ch.providerParam}/playlist.m3u8${tokenParam || ''}`;
-        }
+        // Flusso HLS CDN diretto TVNow senza proxy locale nè WARP (zero carico server in produzione)
+        const token = Buffer.from(JSON.stringify({ channelId: ch.providerParam, ts: Date.now() })).toString('base64');
+        playUrl = `https://chunk.tvnow247.today/api/proxy/playlist?token=${token}`;
         kodiProps['inputstream'] = 'inputstream.adaptive';
         kodiProps['inputstream.adaptive.manifest_type'] = 'hls';
       } else if (ch.provider === 'freeshot') {

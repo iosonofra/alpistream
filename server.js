@@ -1665,57 +1665,29 @@ app.get(['/stream/mpd/:id.ts', '/stream/mpd/:id', '/stream/mpd', '/stream/cleark
 // 3d. PROXY STREAMING HTSPORT (EpiEmbeds WebP Stripper & TVNow)
 // -------------------------------------------------------------
 
-// 1. Endpoint M3U8 per canali EpiEmbeds (DAZN 1 HD, ecc.)
+// 1. Endpoint M3U8 per canali EpiEmbeds (DAZN 1 HD, ecc.) - DIRETTO SENZA PROXY
 app.get(['/stream/htsport/epiembeds/:slug/playlist.m3u8', '/stream/htsport/epiembeds/:slug'], verifyToken, async (req, res) => {
   const slug = req.params.slug;
   if (!slug) return res.status(400).send('Parametro slug mancante.');
 
-  const cfg = storage.getConfig();
-  const isGroupInWarp = (g) => {
-    if (!g || !Array.isArray(cfg.warpGroups)) return false;
-    const lower = g.trim().toLowerCase();
-    return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
-  };
-  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && (
-    isGroupInWarp('SPORT - HTSport') ||
-    cfg.warpGroups.some(g => g.toLowerCase().includes('htsport') || g.toLowerCase().includes('sport'))
-  ));
-
   try {
     const directM3u8Url = await HTSportService.resolveEpiEmbeds(slug);
-    const host = req.get('host');
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const baseUrl = `${protocol}://${host}`;
 
-    const axiosOpts = {
+    const resp = await axios.get(directM3u8Url, {
       headers: {
         'Referer': 'https://epiembeds.online/',
         'Origin': 'https://epiembeds.online',
         'User-Agent': 'Mozilla/5.0'
       },
       timeout: 8000
-    };
-    if (useWarp) {
-      const agent = getWarpAgent();
-      if (agent) {
-        axiosOpts.httpAgent = agent;
-        axiosOpts.httpsAgent = agent;
-      }
-    }
-
-    const resp = await axios.get(directM3u8Url, axiosOpts);
+    });
 
     let body = resp.data;
     const baseUri = directM3u8Url.substring(0, directM3u8Url.lastIndexOf('/') + 1);
-    // Riscrive tutti i chunk video verso il proxy locale che rimuove il falso header WebP
     body = body.replace(/^(?!#)(.+)$/gm, (match) => {
       const line = match.trim();
       if (!line) return match;
-      const absUrl = (line.startsWith('http://') || line.startsWith('https://')) ? line : `${baseUri}${line}`;
-      if (absUrl.includes('.m3u8')) {
-        return `${baseUrl}/api/stream/proxy.m3u8?url=${encodeURIComponent(absUrl)}${useWarp ? '&warp=1' : ''}&referer=${encodeURIComponent('https://epiembeds.online/')}&origin=${encodeURIComponent('https://epiembeds.online')}`;
-      }
-      return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(absUrl)}${useWarp ? '&warp=1' : ''}`;
+      return (line.startsWith('http://') || line.startsWith('https://')) ? line : `${baseUri}${line}`;
     });
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
@@ -1723,17 +1695,15 @@ app.get(['/stream/htsport/epiembeds/:slug/playlist.m3u8', '/stream/htsport/epiem
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(body);
   } catch (err) {
-    console.error(`[HTSport Proxy] Errore risoluzione/fetch manifest per slug ${slug}: ${err.message}`);
+    console.error(`[HTSport Direct] Errore risoluzione/fetch manifest per slug ${slug}: ${err.message}`);
     if (!res.headersSent) res.status(502).send(`Errore HTSport EpiEmbeds: ${err.message}`);
   }
 });
 
-// 2. Endpoint Segmenti TS per EpiEmbeds (Rimuove il falso header WebP da TikTok CDN)
+// 2. Endpoint Segmenti TS per EpiEmbeds (Rimuove il falso header WebP se richiesto - NO WARP)
 app.get('/stream/htsport/segment', async (req, res) => {
   const segUrl = req.query.url;
   if (!segUrl) return res.status(400).send('Parametro URL mancante.');
-
-  const useWarp = req.query.warp === '1' || req.query.warp === 'true';
 
   try {
     const axiosOpts = {
@@ -1743,13 +1713,6 @@ app.get('/stream/htsport/segment', async (req, res) => {
         'User-Agent': 'Mozilla/5.0'
       }
     };
-    if (useWarp) {
-      const agent = getWarpAgent();
-      if (agent) {
-        axiosOpts.httpAgent = agent;
-        axiosOpts.httpsAgent = agent;
-      }
-    }
 
     const resp = await axios.get(segUrl, axiosOpts);
 
@@ -1769,75 +1732,45 @@ app.get('/stream/htsport/segment', async (req, res) => {
     });
     res.end(cleanTs);
   } catch (err) {
-    console.error(`[HTSport Proxy] Errore recupero segmento: ${err.message}`);
+    console.error(`[HTSport Direct] Errore recupero segmento: ${err.message}`);
     if (!res.headersSent) res.status(502).send(`Errore segmento HTSport: ${err.message}`);
   }
 });
 
-// 3. Endpoint M3U8 per canali TVNow (Sky Sport Uno, Calcio, F1, MotoGP, Max, ecc.)
+// 3. Endpoint M3U8 per canali TVNow (Sky Sport Uno, Calcio, F1, MotoGP, Max, ecc.) - DIRETTO SENZA PROXY
 app.get(['/stream/htsport/tvnow/:id/playlist.m3u8', '/stream/htsport/tvnow/:id'], verifyToken, async (req, res) => {
   const channelId = req.params.id;
   if (!channelId) return res.status(400).send('Parametro channelId mancante.');
 
-  const cfg = storage.getConfig();
-  const isGroupInWarp = (g) => {
-    if (!g || !Array.isArray(cfg.warpGroups)) return false;
-    const lower = g.trim().toLowerCase();
-    return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
-  };
-  const useWarp = req.query.warp === '1' || req.query.warp === 'true' || !!(cfg && cfg.warpEnabled && Array.isArray(cfg.warpGroups) && (
-    isGroupInWarp('SPORT - HTSport') ||
-    cfg.warpGroups.some(g => g.toLowerCase().includes('htsport') || g.toLowerCase().includes('sport'))
-  ));
-
   try {
     const directM3u8Url = await HTSportService.resolveTvNow(channelId);
-    const host = req.get('host');
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const baseUrl = `${protocol}://${host}`;
 
-    const axiosOpts = {
+    // Emette direttamente il manifest HLS con segmenti CDN diretti (NO proxy segmenti, NO WARP per evitare saturazione server)
+    const resp = await axios.get(directM3u8Url, {
       headers: {
         'Referer': 'https://tvnow247.top/',
         'Origin': 'https://tvnow247.top',
         'User-Agent': 'Mozilla/5.0'
       },
       timeout: 8000
-    };
-    if (useWarp) {
-      const agent = getWarpAgent();
-      if (agent) {
-        axiosOpts.httpAgent = agent;
-        axiosOpts.httpsAgent = agent;
-      }
-    }
-
-    const resp = await axios.get(directM3u8Url, axiosOpts);
+    });
 
     let body = resp.data;
     const baseUri = directM3u8Url.substring(0, directM3u8Url.lastIndexOf('/') + 1);
 
-    if (useWarp) {
-      // Se WARP è attivo, passa tutti i segmenti per il proxy locale per aggirare il blocco CDN
-      body = body.replace(/^(?!#)(.+)$/gm, (m) => {
-        const line = m.trim();
-        if (!line) return m;
-        const absUrl = (line.startsWith('http://') || line.startsWith('https://')) ? line : `${baseUri}${line}`;
-        if (absUrl.includes('.m3u8')) {
-          return `${baseUrl}/api/stream/proxy.m3u8?url=${encodeURIComponent(absUrl)}&warp=1&referer=${encodeURIComponent('https://tvnow247.top/')}&origin=${encodeURIComponent('https://tvnow247.top')}`;
-        }
-        return `${baseUrl}/stream/htsport/segment?url=${encodeURIComponent(absUrl)}&warp=1`;
-      });
-    } else if (!body.includes('http://') && !body.includes('https://')) {
-      body = body.replace(/^(?!#)([\w.-]+\.(?:m3u8|ts|m4s|pdf|zst)(?:\?[^\r\n]*)?)$/gm, `${baseUri}$1`);
-    }
+    // Risolve eventuali segmenti relativi in URL assoluti diretti verso la CDN originaria (zero transito sul proxy)
+    body = body.replace(/^(?!#)(.+)$/gm, (m) => {
+      const line = m.trim();
+      if (!line) return m;
+      return (line.startsWith('http://') || line.startsWith('https://')) ? line : `${baseUri}${line}`;
+    });
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.send(body);
   } catch (err) {
-    console.error(`[HTSport Proxy] Errore risoluzione/fetch TVNow per ID ${channelId}: ${err.message}`);
+    console.error(`[HTSport Direct] Errore risoluzione/fetch TVNow per ID ${channelId}: ${err.message}`);
     if (!res.headersSent) res.status(502).send(`Errore HTSport TVNow: ${err.message}`);
   }
 });

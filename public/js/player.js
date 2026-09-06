@@ -75,8 +75,8 @@ function buildProxyUrl(rawUrl, headersObj, useWarp = false) {
     }
   }
 
-  // Non proxyare se punta già a un endpoint stream nativo del nostro server (/stream/...)
-  if (cleanUrl.startsWith('/stream/') || (cleanUrl.includes(window.location.host) && cleanUrl.includes('/stream/'))) {
+  // Non proxyare se punta a un endpoint nativo (/stream/...) o se appartiene a flussi diretti HTSport/TVNow
+  if (cleanUrl.startsWith('/stream/') || (cleanUrl.includes(window.location.host) && cleanUrl.includes('/stream/')) || cleanUrl.includes('chunk.tvnow247.today') || cleanUrl.includes('wideiptv.top') || cleanUrl.includes('dlhd.st')) {
     return cleanUrl;
   }
 
@@ -115,17 +115,24 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
   const headersObj = parseHeaders(ch.headers, ch.url);
   const clearkey = ch.clearkey || (ch.kodi_props ? ch.kodi_props['inputstream.adaptive.license_key'] : '');
 
+  // I canali HTSport Live non devono passare attraverso proxy nè WARP
+  const isHtsport = (ch.source === 'htsport') ||
+    (ch.group && ch.group.toLowerCase().includes('htsport')) ||
+    (cleanUrl && (cleanUrl.includes('chunk.tvnow247') || cleanUrl.includes('htsport') || cleanUrl.includes('tvnow')));
+
   const cfg = window.appConfig || {};
   const isGroupInWarp = (g) => {
     if (!g || !Array.isArray(cfg.warpGroups)) return false;
     const lower = g.trim().toLowerCase();
+    if (lower.includes('htsport')) return false;
     return cfg.warpGroups.some(wg => {
       if (!wg) return false;
       const wgl = wg.trim().toLowerCase();
-      return wgl === lower || lower.includes(wgl) || wgl.includes(lower);
+      if (wgl.includes('htsport')) return false;
+      return wgl === lower;
     });
   };
-  const useWarp = !!(cfg.warpEnabled && (ch.useWarp === true || isGroupInWarp(ch.group) || isGroupInWarp(ch.customGroup)));
+  const useWarp = !isHtsport && !!(cfg.warpEnabled && (ch.useWarp === true || isGroupInWarp(ch.group) || isGroupInWarp(ch.customGroup)));
 
   // 1. Riconoscimento stream AceStream
   let aceHash = '';

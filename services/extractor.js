@@ -188,6 +188,12 @@ function processWarpChannels(channelList) {
     const hasClearKey = ch.clearkey && !['0000', '0:0', '0'].includes(String(ch.clearkey).trim());
     const isMpd = (ch.url && ch.url.includes('.mpd')) || (ch.kodi_props && ch.kodi_props['inputstream.adaptive.manifest_type'] === 'mpd');
 
+    // I canali HTSport non devono mai essere toccati da WARP né duplicati
+    if (ch.source === 'htsport' || (ch.group && ch.group.toLowerCase().includes('htsport')) || (ch.url && (ch.url.includes('htsport') || ch.url.includes('tvnow')))) {
+      result.push(ch);
+      continue;
+    }
+
     // Se il canale ha già id terminante in _warp o _ffmpeg, non duplicare ulteriormente
     if (ch.id && (ch.id.endsWith('_warp') || ch.id.endsWith('_ffmpeg'))) {
       result.push(ch);
@@ -884,15 +890,22 @@ class ExtractorEngine {
           if (match) aceHash = match[1];
         }
 
+        // I canali HTSport non devono MAI passare attraverso proxy (né WARP né proxy segmenti in produzione)
+        const isHtsport = (ch.source === 'htsport') ||
+          (groupName && groupName.toLowerCase().includes('htsport')) ||
+          (ch.group && ch.group.toLowerCase().includes('htsport')) ||
+          (url && (url.includes('htsport') || url.includes('tvnow') || url.includes('chunk.tvnow247')));
+
         // Helper per verificare se un gruppo è incluso nella configurazione WARP (case-insensitive)
         const isGroupInWarp = (g) => {
           if (!g || !Array.isArray(cfg.warpGroups)) return false;
           const lower = g.trim().toLowerCase();
+          if (lower.includes('htsport')) return false; // Esclusione tassativa HTSport da WARP
           return cfg.warpGroups.some(wg => wg && wg.trim().toLowerCase() === lower);
         };
 
         // Verifica se il canale deve usare il proxy Cloudflare WARP (per singolo canale, modalità stream o gruppo)
-        const isWarpActive = !!(
+        const isWarpActive = !isHtsport && !!(
           ch.useWarp === true ||
           ch.streamMode === 'warp_direct' ||
           ch.streamMode === 'ffmpeg_copy' ||
@@ -928,7 +941,7 @@ class ExtractorEngine {
             let streamPath = `${baseUrl}/stream/mpd/${ch.id}.ts`;
             if (warpQueryParam) streamPath = appendParam(streamPath, warpQueryParam);
             finalUrl = `${streamPath}${tokenParam ? (streamPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
-          } else if (isWarpActive && baseUrl && !url.includes('/stream/htsport/')) {
+          } else if (isWarpActive && baseUrl && !isHtsport && !url.includes('/stream/htsport/')) {
             // Se WARP è attivo su questo gruppo/canale (inclusa la variante WARP SOCKS5 diretta)
             const isM3u8 = url.includes('.m3u8') || (kodiProps && kodiProps['inputstream.adaptive.manifest_type'] === 'hls');
             const isMpd = url.includes('.mpd') || (kodiProps && kodiProps['inputstream.adaptive.manifest_type'] === 'mpd');
@@ -939,13 +952,12 @@ class ExtractorEngine {
           }
         }
 
-        // Riscrittura canali HTSport con il baseUrl, token e eventuale warp=1
+        // Riscrittura canali HTSport legacy se necessario: MAI passare per WARP
         if (url.startsWith('/stream/htsport/') || url.includes('/stream/htsport/')) {
           if (baseUrl) {
             let relPath = url.includes('/stream/htsport/') ? '/stream/htsport/' + url.split('/stream/htsport/')[1] : url;
-            if (warpQueryParam && !relPath.includes('warp=')) {
-              relPath = appendParam(relPath, warpQueryParam);
-            }
+            // Rimuove tassativamente qualsiasi parametro warp residuo per i canali HTSport
+            relPath = relPath.replace(/[?&]warp=[^&]+/g, '').replace(/\?&/, '?').replace(/\?$/, '');
             finalUrl = `${baseUrl}${relPath}${tokenParam ? (relPath.includes('?') ? '&' + tokenParam.slice(1) : tokenParam) : ''}`;
           }
         }
