@@ -205,11 +205,21 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
 
         mpegPlayer.attachMediaElement(videoEl);
         mpegPlayer.load();
-        if (mpegPlayer._transmuxer) {
-          mpegPlayer._transmuxer.seek = () => {};
-        }
         mpegPlayer.play().catch(err => {
           console.warn('[Player] Autoplay mpegts bloccato:', err);
+          if (videoEl && !videoEl.muted) {
+            videoEl.muted = true;
+            mpegPlayer.play().catch(() => {});
+            const unmute = () => {
+              if (videoEl) videoEl.muted = false;
+              window.removeEventListener('click', unmute, true);
+              window.removeEventListener('keydown', unmute, true);
+              window.removeEventListener('touchstart', unmute, true);
+            };
+            window.addEventListener('click', unmute, true);
+            window.addEventListener('keydown', unmute, true);
+            window.addEventListener('touchstart', unmute, true);
+          }
         });
         return mpegPlayer;
       } catch (e) {
@@ -274,9 +284,6 @@ async function playOnVideoElement(videoEl, ch, playerInstance) {
 
         mpegPlayer.attachMediaElement(videoEl);
         mpegPlayer.load();
-        if (mpegPlayer._transmuxer) {
-          mpegPlayer._transmuxer.seek = () => {};
-        }
         mpegPlayer.play().catch(() => {});
         if (window.showToast) showToast('🔄 Passato a motore FFmpeg (compatibilità stream)');
         return mpegPlayer;

@@ -157,6 +157,7 @@ class TvPlayer {
     // Invalidate callbacks before destroying either MediaSource owner.
     this.sessionId++;
     this.switchingEngine = true;
+    this.hideAutoplayPrompt();
     if (this.hlsInstance) {
       try { this.hlsInstance.destroy(); } catch (e) {}
       this.hlsInstance = null;
@@ -169,6 +170,69 @@ class TvPlayer {
       });
     }
     this.switchingEngine = false;
+  }
+
+  attemptPlay(playPromise, context = '') {
+    if (!playPromise || typeof playPromise.catch !== 'function') {
+      return Promise.resolve();
+    }
+    return playPromise.catch(err => {
+      console.warn(`[TvPlayer] Autoplay ${context} bloccato:`, err);
+      // Fallback per policy del browser (audio non consentito prima di interazione utente):
+      // Avvia con volume azzerato (consentito da tutti i browser) e mostra prompt di sblocco
+      if (this.video && !this.video.muted) {
+        console.log(`[TvPlayer] Attivazione riproduzione silenziosa di sicurezza (muted autoplay)...`);
+        this.video.muted = true;
+        this.showAutoplayPrompt();
+        const retry = (this.mpegInstance && typeof this.mpegInstance.play === 'function')
+          ? this.mpegInstance.play()
+          : this.video.play();
+        if (retry && typeof retry.catch === 'function') {
+          retry.catch(e2 => {
+            console.warn('[TvPlayer] Muted autoplay fallito:', e2);
+          });
+        }
+      }
+    });
+  }
+
+  showAutoplayPrompt() {
+    if (typeof document === 'undefined') return;
+    let prompt = document.getElementById('autoplay-unmute-prompt');
+    if (!prompt) {
+      prompt = document.createElement('div');
+      prompt.id = 'autoplay-unmute-prompt';
+      prompt.className = 'autoplay-unmute-pill';
+      prompt.innerHTML = '🔊 <span>Audio disattivato dal browser. Clicca o premi un tasto per attivarlo</span>';
+      document.body.appendChild(prompt);
+    }
+    prompt.classList.remove('hidden');
+
+    const unlock = () => {
+      if (this.video) {
+        this.video.muted = false;
+      }
+      this.hideAutoplayPrompt();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('click', unlock, true);
+        window.removeEventListener('keydown', unlock, true);
+        window.removeEventListener('touchstart', unlock, true);
+      }
+    };
+    prompt.onclick = unlock;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('click', unlock, true);
+      window.addEventListener('keydown', unlock, true);
+      window.addEventListener('touchstart', unlock, true);
+    }
+  }
+
+  hideAutoplayPrompt() {
+    if (typeof document === 'undefined') return;
+    const prompt = document.getElementById('autoplay-unmute-prompt');
+    if (prompt) {
+      prompt.classList.add('hidden');
+    }
   }
 
   extractAceHash(channel) {
@@ -368,12 +432,7 @@ class TvPlayer {
 
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
-        if (this.mpegInstance._transmuxer) {
-          this.mpegInstance._transmuxer.seek = () => {};
-        }
-        this.mpegInstance.play().catch(err => {
-          console.warn('[TvPlayer] Autoplay AceStream bloccato:', err);
-        });
+        this.attemptPlay(this.mpegInstance.play(), 'AceStream');
         return;
       } catch (e) {
         console.warn('[TvPlayer] Fallito avvio mpegts.js per AceStream, passo a HLS:', e);
@@ -419,7 +478,7 @@ class TvPlayer {
           enableWorker: false, // Disabilitato per compatibilità con browser webOS più vecchi
           lazyLoad: false, // Disabilitato per streaming live continuo (evita caduta socket e buffer gap)
           lazyLoadMaxDuration: 0,
-                    liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
+          liveBufferLatencyChasing: false, // Disabilitato: inseguimento via seek provoca salto indietro al keyframe precedente e desync A/V
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 60, // Limita memoria occupata sulla TV
           autoCleanupMinBackwardDuration: 15, // Preserva i keyframe recenti
@@ -437,12 +496,7 @@ class TvPlayer {
 
         this.mpegInstance.attachMediaElement(this.video);
         this.mpegInstance.load();
-        if (this.mpegInstance._transmuxer) {
-          this.mpegInstance._transmuxer.seek = () => {};
-        }
-        this.mpegInstance.play().catch(err => {
-          console.warn('[TvPlayer] Autoplay mpegts bloccato:', err);
-        });
+        this.attemptPlay(this.mpegInstance.play(), 'MPEG-TS');
         return;
       } catch (e) {
         console.warn('[TvPlayer] Fallito avvio mpegts.js, tento con tag video nativo:', e);
@@ -473,7 +527,7 @@ class TvPlayer {
 
         this.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
           if (session !== this.sessionId) return;
-          this.video.play().catch(() => {});
+          this.attemptPlay(this.video.play(), 'HLS');
         });
 
         this.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
@@ -522,9 +576,7 @@ class TvPlayer {
     this.destroyEngines();
     console.log('[TvPlayer] Avvio riproduzione nativa:', url);
     this.video.src = url;
-    this.video.play().catch(e => {
-      console.warn('[TvPlayer] Autoplay nativo rifiutato o fallito:', e);
-    });
+    this.attemptPlay(this.video.play(), 'Native');
   }
 
   handlePlaybackError(msg) {

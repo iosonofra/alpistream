@@ -1642,3 +1642,34 @@ body.tv-body {
   overflow-y: auto;
 }
 
+/* Autoplay Unmute Prompt Banner */
+.autoplay-unmute-pill {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(14, 30, 64, 0.94);
+  color: #ffffff;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 16px rgba(0, 240, 255, 0.4);
+  border: 1px solid rgba(0, 240, 255, 0.6);
+  z-index: 9999;
+  cursor: pointer;
+  animation: pulse-glow 2s infinite alternate ease-in-out;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.autoplay-unmute-pill.hidden {
+  display: none !important;
+}
+
+@keyframes pulse-glow {
+  0% { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 8px rgba(0, 240, 255, 0.3); }
+  100% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 240, 255, 0.7); }
+}
